@@ -1,0 +1,83 @@
+{
+  "name": "alex-tong-toolkit",
+  "owner": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "metadata": {
+    "description": "Free Claude Code plugins from Alex Tong — skills for AI-assisted development and printable educational worksheets.",
+    "version": "0.14.1"
+  },
+  "plugins": [
+    {
+      "name": "alex-tong-workspace",
+      "source": "./plugins/workspace",
+      "description": "Create and audit multi-repo workspaces with shared context — for teams or personal projects. Generates repo registry, CLAUDE.md scaffold, Makefile, and bootstrap scripts.",
+      "version": "0.4.0",
+      "author": {
+        "name": "Alex Tong",
+        "url": "https://alextong.me"
+      },
+      "category": "dev-workflow",
+      "keywords": ["workspace", "monorepo", "multi-repo", "team", "context", "scaffold"],
+      "homepage": "https://alextong.me/toolkit/workspace",
+      "license": "MIT"
+    },
+    {
+      "name": "pr",
+      "source": "./plugins/pr",
+      "description": "PR workflow skills — generate structured PR descriptions from your branch diff.",
+      "version": "0.1.1",
+      "author": {
+        "name": "Alex Tong",
+        "url": "https://alextong.me"
+      },
+      "category": "dev-workflow",
+      "keywords": ["git", "github", "pull-request", "code-review", "pr"],
+      "homepage": "https://alextong.me/toolkit",
+      "license": "MIT"
+    },
+    {
+      "name": "education",
+      "source": "./plugins/education",
+      "description": "Educational content skills — create beautiful, printable worksheets as self-contained HTML files for any grade level, subject, or audience.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Alex Tong",
+        "url": "https://alextong.me"
+      },
+      "category": "education",
+      "keywords": ["education", "worksheet", "teaching", "printable", "html"],
+      "homepage": "https://alextong.me/toolkit",
+      "license": "MIT"
+    },
+    {
+      "name": "claude-brain",
+      "source": "./plugins/claude-brain",
+      "description": "Claude Code context quality skills — audit CLAUDE.md and .claude/rules/ files for staleness, contradictions, and missing context.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Alex Tong",
+        "url": "https://alextong.me"
+      },
+      "category": "dev-workflow",
+      "keywords": ["claude-md", "audit", "context", "quality", "instructions"],
+      "homepage": "https://alextong.me/toolkit",
+      "license": "MIT"
+    },
+    {
+      "name": "company-research",
+      "source": "./plugins/company-research",
+      "description": "Research a company comprehensively — culture, WLB, leadership, comp — with an optional role-specific interview deep-dive (stages, hiring manager, common questions, prep frameworks). Output is a saved markdown packet.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Alex Tong",
+        "url": "https://alextong.me"
+      },
+      "category": "research",
+      "keywords": ["company-research", "interview-prep", "career", "culture", "glassdoor", "blind", "linkedin"],
+      "homepage": "https://alextong.me/toolkit",
+      "license": "MIT"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+name: Validate marketplace
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse all JSON
+        run: node scripts/parse-all-json.js
+      - name: Validate marketplace schema
+        run: node scripts/validate-marketplace.js
+      - name: Validate SKILL.md gold spec
+        run: node scripts/validate-skills.js
+      - name: Run fixture tests
+        run: bash tests/run.sh

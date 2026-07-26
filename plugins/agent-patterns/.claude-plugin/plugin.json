@@ -1,0 +1,11 @@
+{
+  "name": "agent-patterns",
+  "version": "0.0.1",
+  "description": "Patterns for orchestrating Claude Code agents — sandboxed worktrees, parallel exploration, and review subagents. DRAFT, not yet published.",
+  "author": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "homepage": "https://alextong.me/toolkit",
+  "license": "MIT"
+}

@@ -1,0 +1,11 @@
+{
+  "name": "learn",
+  "version": "0.1.0",
+  "description": "Stay-in-the-loop skills — turn Claude into a teacher that verifies you deeply understand the work before you move on",
+  "author": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "homepage": "https://alextong.me/toolkit",
+  "license": "MIT"
+}

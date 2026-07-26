@@ -1,0 +1,11 @@
+{
+  "name": "claude-brain",
+  "version": "0.1.0",
+  "description": "Claude Code context quality skills — audit CLAUDE.md and .claude/rules/ files for staleness, contradictions, and missing context",
+  "author": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "homepage": "https://alextong.me/toolkit",
+  "license": "MIT"
+}

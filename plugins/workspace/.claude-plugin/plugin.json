@@ -1,0 +1,11 @@
+{
+  "name": "alex-tong-workspace",
+  "version": "0.4.0",
+  "description": "Create and audit multi-repo workspaces with shared context — for teams or personal projects",
+  "author": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "homepage": "https://alextong.me/toolkit/workspace",
+  "license": "MIT"
+}

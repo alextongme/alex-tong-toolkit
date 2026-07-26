@@ -1,0 +1,11 @@
+{
+  "name": "company-research",
+  "version": "0.1.0",
+  "description": "Research a company comprehensively — culture, WLB, leadership, comp — with an optional role-specific interview deep-dive (stages, hiring manager, common questions, prep frameworks). Output is a saved markdown packet.",
+  "author": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "homepage": "https://alextong.me/toolkit",
+  "license": "MIT"
+}

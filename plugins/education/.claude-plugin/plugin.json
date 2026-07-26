@@ -1,0 +1,11 @@
+{
+  "name": "education",
+  "version": "0.1.0",
+  "description": "Educational content skills — create beautiful, printable worksheets as self-contained HTML files",
+  "author": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "homepage": "https://alextong.me/toolkit",
+  "license": "MIT"
+}
