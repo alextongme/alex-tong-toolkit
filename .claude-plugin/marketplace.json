@@ -78,6 +78,34 @@
       "keywords": ["company-research", "interview-prep", "career", "culture", "glassdoor", "blind", "linkedin"],
       "homepage": "https://alextong.me/toolkit",
       "license": "MIT"
+    },
+    {
+      "name": "skill-stats",
+      "source": "./plugins/skill-stats",
+      "description": "Locally track which Claude Code skills and agents you actually invoke — surface the top hits and the ones you installed but never use.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Alex Tong",
+        "url": "https://alextong.me"
+      },
+      "category": "dev-workflow",
+      "keywords": ["skills", "agents", "usage", "analytics", "hook", "local"],
+      "homepage": "https://alextong.me/toolkit",
+      "license": "MIT"
+    },
+    {
+      "name": "context-diet",
+      "source": "./plugins/context-diet",
+      "description": "Audit what actually loads into every Claude Code session at startup — CLAUDE.md files, plugins, skills, subagents, MCP servers — with per-source token estimates and prune recommendations.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Alex Tong",
+        "url": "https://alextong.me"
+      },
+      "category": "dev-workflow",
+      "keywords": ["context", "tokens", "audit", "budget", "startup", "prune"],
+      "homepage": "https://alextong.me/toolkit",
+      "license": "MIT"
     }
   ]
 }

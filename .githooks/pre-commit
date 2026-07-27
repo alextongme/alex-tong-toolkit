@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Pre-commit hook: run the safety scanner against staged files.
+#
+# To enable this hook after cloning:
+#   git config core.hooksPath .githooks
+#
+# The scanner enforces the hard rules in CLAUDE.md — refuses to commit
+# anything containing banned patterns (internal ex-employer identifiers,
+# credential formats, personal file paths, personal patterns from
+# .safety-scan-local.txt).
+
+set -eu
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR | tr '\n' ' ')
+if [ -z "$(echo "$STAGED" | tr -d ' ')" ]; then
+  exit 0
+fi
+
+# Scanner is Node — same runtime as the other validators. Skip if node missing
+# (better to warn than to silently pass, but also don't want to block a commit
+# on an environment issue).
+if ! command -v node >/dev/null 2>&1; then
+  echo "warn: pre-commit safety scan skipped — node not on PATH" >&2
+  exit 0
+fi
+
+# shellcheck disable=SC2086
+node scripts/scan-safety.js $STAGED

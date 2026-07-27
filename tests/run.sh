@@ -19,6 +19,9 @@ node scripts/validate-marketplace.js
 echo "→ validate skill gold spec"
 node scripts/validate-skills.js
 
+echo "→ safety scan (secrets, ex-employer internals, personal identifiers)"
+node scripts/scan-safety.js
+
 echo "→ fixture: pr-summary example contains required sections"
 node tests/fixture-pr-example.js
 

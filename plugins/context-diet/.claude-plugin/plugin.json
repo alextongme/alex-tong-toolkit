@@ -1,0 +1,11 @@
+{
+  "name": "context-diet",
+  "version": "0.1.0",
+  "description": "Audit what actually loads into every Claude Code session at startup — MCP servers, plugins, skills, agents, CLAUDE.md files — with per-source token estimates and prune recommendations",
+  "author": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "homepage": "https://alextong.me/toolkit",
+  "license": "MIT"
+}

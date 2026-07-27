@@ -2,7 +2,37 @@
 node_modules/
 *.log
 .env
-.env.local
+.env.*
+.envrc
 dist/
 build/
 .vercel
+
+# Local-only files — never commit
+*.local.md
+
+# Worktrees live inside the repo and must never be committed.
+.claude/worktrees/
+
+# Credential files — belt-and-suspenders. The safety scanner also refuses
+# to commit anything matching these name patterns, but the .gitignore keeps
+# them from ever being staged in the first place.
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+id_dsa
+id_dsa.pub
+id_ecdsa
+id_ecdsa.pub
+id_ed25519
+id_ed25519.pub
+credentials.json
+service-account*.json
+aws-credentials*
+google-credentials*
+
+# Local-only additional safety-scanner patterns (see CLAUDE.md → Enforcement).
+# Add personal emails, hostnames, or private domains here — one per line.
+# This file stays on your machine and never gets committed.
+.safety-scan-local.txt
