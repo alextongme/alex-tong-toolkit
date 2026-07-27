@@ -11,7 +11,7 @@ description: >
   CLAUDE.md file (that is `alex-tong-engineering:claude-md-audit`), debugging in-session
   context growth from tool calls, editing conversation history, or
   measuring runtime token spend (this is startup-load only).
-model: claude-opus-4-7
+model: claude-opus-5
 allowed-tools: ["Read", "Glob", "Grep", "Bash"]
 ---
 

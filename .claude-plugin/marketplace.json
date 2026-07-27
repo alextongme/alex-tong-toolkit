@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Free Claude Code plugins from Alex Tong — grouped by who they're for: engineering workflow, education, career, and usage stats.",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "renames": {
     "alex-tong-workspace": "alex-tong-engineering",
@@ -22,7 +22,7 @@
       "name": "alex-tong-engineering",
       "source": "./plugins/alex-tong-engineering",
       "description": "Claude Code workflow skills for working engineers — scaffold and audit multi-repo workspaces, generate structured PR descriptions from a branch diff, audit CLAUDE.md and .claude/rules/ files for staleness, and measure what actually loads into every session at startup.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": {
         "name": "Alex Tong",
         "url": "https://alextong.me"
@@ -84,7 +84,7 @@
       "name": "alex-tong-skill-stats",
       "source": "./plugins/alex-tong-skill-stats",
       "description": "Locally track which Claude Code skills and agents you actually invoke — surface the top hits and the ones you installed but never use. Ships a PreToolUse hook, so installing it is the opt-in; nothing ever leaves your machine.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": {
         "name": "Alex Tong",
         "url": "https://alextong.me"
