@@ -10,7 +10,7 @@ description: >
   personal, local-only log), profiling latency or errors of individual
   skill runs, editing skill files, or generating usage predictions for
   skills that have not run at least once.
-model: claude-opus-4-7
+model: claude-opus-5
 allowed-tools: ["Bash", "Read", "Glob"]
 ---
 

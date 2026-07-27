@@ -8,7 +8,7 @@ description: >
   or similar. Do NOT use for: single-repo project setup, IDE/editor
   configuration, CI pipeline scaffolding, or general repo cloning without a
   shared Claude context layer.
-model: claude-opus-4-7
+model: claude-opus-5
 allowed-tools: ["Bash(gh repo view:*)", "Bash(gh auth status:*)", "Bash(git init:*)", "Bash(chmod +x:*)", "Bash(date:*)", "Bash(command -v:*)", "Bash(mkdir:*)", "Bash(ls:*)", "Bash(gh api:*)", "Bash(pwd:*)", "Read", "Write", "AskUserQuestion"]
 ---
 

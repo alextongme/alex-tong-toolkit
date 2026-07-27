@@ -7,7 +7,7 @@ description: >
   for stale workspace docs", "validate repos.json", or "see what's drifted
   in CLAUDE.md". Do NOT use for: scoring CLAUDE.md quality (use
   `alex-tong-engineering:claude-md-audit`), auditing a single repo's code, or reviewing PRs.
-model: claude-opus-4-7
+model: claude-opus-5
 allowed-tools: ["Bash(gh repo view:*)", "Bash(gh auth status:*)", "Bash(command -v:*)", "Bash(ls:*)", "Bash(pwd:*)", "Bash(stat:*)", "Bash(jq:*)", "Bash(cat:*)", "Read", "Glob", "Grep"]
 ---
 

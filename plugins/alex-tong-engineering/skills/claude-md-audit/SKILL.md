@@ -7,7 +7,7 @@ description: >
   instructions?". Do NOT use for: writing new CLAUDE.md files from scratch,
   generating code documentation, reviewing non-Claude config files, or general
   repository audits unrelated to Claude context quality.
-model: claude-opus-4-7
+model: claude-opus-5
 allowed-tools: ["Read", "Glob", "Grep"]
 ---
 
