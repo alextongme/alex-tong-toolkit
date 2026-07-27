@@ -5,105 +5,99 @@
     "url": "https://alextong.me"
   },
   "metadata": {
-    "description": "Free Claude Code plugins from Alex Tong — skills for AI-assisted development and printable educational worksheets.",
-    "version": "0.14.1"
+    "description": "Free Claude Code plugins from Alex Tong — grouped by who they're for: engineering workflow, education, career, and usage stats.",
+    "version": "1.0.0"
+  },
+  "renames": {
+    "alex-tong-workspace": "alex-tong-engineering",
+    "pr": "alex-tong-engineering",
+    "claude-brain": "alex-tong-engineering",
+    "context-diet": "alex-tong-engineering",
+    "education": "alex-tong-education",
+    "company-research": "alex-tong-career",
+    "skill-stats": "alex-tong-skill-stats"
   },
   "plugins": [
     {
-      "name": "alex-tong-workspace",
-      "source": "./plugins/workspace",
-      "description": "Create and audit multi-repo workspaces with shared context — for teams or personal projects. Generates repo registry, CLAUDE.md scaffold, Makefile, and bootstrap scripts.",
-      "version": "0.4.0",
+      "name": "alex-tong-engineering",
+      "source": "./plugins/alex-tong-engineering",
+      "description": "Claude Code workflow skills for working engineers — scaffold and audit multi-repo workspaces, generate structured PR descriptions from a branch diff, audit CLAUDE.md and .claude/rules/ files for staleness, and measure what actually loads into every session at startup.",
+      "version": "1.0.0",
       "author": {
         "name": "Alex Tong",
         "url": "https://alextong.me"
       },
       "category": "dev-workflow",
-      "keywords": ["workspace", "monorepo", "multi-repo", "team", "context", "scaffold"],
-      "homepage": "https://alextong.me/toolkit/workspace",
-      "license": "MIT"
-    },
-    {
-      "name": "pr",
-      "source": "./plugins/pr",
-      "description": "PR workflow skills — generate structured PR descriptions from your branch diff.",
-      "version": "0.1.1",
-      "author": {
-        "name": "Alex Tong",
-        "url": "https://alextong.me"
-      },
-      "category": "dev-workflow",
-      "keywords": ["git", "github", "pull-request", "code-review", "pr"],
+      "keywords": [
+        "claude-md",
+        "code-review",
+        "context",
+        "monorepo",
+        "pull-request",
+        "tokens",
+        "workspace"
+      ],
       "homepage": "https://alextong.me/toolkit",
       "license": "MIT"
     },
     {
-      "name": "education",
-      "source": "./plugins/education",
+      "name": "alex-tong-education",
+      "source": "./plugins/alex-tong-education",
       "description": "Educational content skills — create beautiful, printable worksheets as self-contained HTML files for any grade level, subject, or audience.",
-      "version": "0.1.0",
+      "version": "1.0.0",
       "author": {
         "name": "Alex Tong",
         "url": "https://alextong.me"
       },
       "category": "education",
-      "keywords": ["education", "worksheet", "teaching", "printable", "html"],
+      "keywords": [
+        "education",
+        "worksheet",
+        "teaching",
+        "printable",
+        "html"
+      ],
       "homepage": "https://alextong.me/toolkit",
       "license": "MIT"
     },
     {
-      "name": "claude-brain",
-      "source": "./plugins/claude-brain",
-      "description": "Claude Code context quality skills — audit CLAUDE.md and .claude/rules/ files for staleness, contradictions, and missing context.",
-      "version": "0.1.0",
-      "author": {
-        "name": "Alex Tong",
-        "url": "https://alextong.me"
-      },
-      "category": "dev-workflow",
-      "keywords": ["claude-md", "audit", "context", "quality", "instructions"],
-      "homepage": "https://alextong.me/toolkit",
-      "license": "MIT"
-    },
-    {
-      "name": "company-research",
-      "source": "./plugins/company-research",
-      "description": "Research a company comprehensively — culture, WLB, leadership, comp — with an optional role-specific interview deep-dive (stages, hiring manager, common questions, prep frameworks). Output is a saved markdown packet.",
-      "version": "0.1.0",
+      "name": "alex-tong-career",
+      "source": "./plugins/alex-tong-career",
+      "description": "Career research skills — build a saved markdown packet on a company covering culture, work-life balance, leadership, and comp, with an optional role-specific interview deep-dive.",
+      "version": "1.0.0",
       "author": {
         "name": "Alex Tong",
         "url": "https://alextong.me"
       },
       "category": "research",
-      "keywords": ["company-research", "interview-prep", "career", "culture", "glassdoor", "blind", "linkedin"],
+      "keywords": [
+        "company-research",
+        "interview-prep",
+        "career",
+        "culture",
+        "job-search"
+      ],
       "homepage": "https://alextong.me/toolkit",
       "license": "MIT"
     },
     {
-      "name": "skill-stats",
-      "source": "./plugins/skill-stats",
-      "description": "Locally track which Claude Code skills and agents you actually invoke — surface the top hits and the ones you installed but never use.",
-      "version": "0.1.0",
+      "name": "alex-tong-skill-stats",
+      "source": "./plugins/alex-tong-skill-stats",
+      "description": "Locally track which Claude Code skills and agents you actually invoke — surface the top hits and the ones you installed but never use. Ships a PreToolUse hook, so installing it is the opt-in; nothing ever leaves your machine.",
+      "version": "1.0.0",
       "author": {
         "name": "Alex Tong",
         "url": "https://alextong.me"
       },
       "category": "dev-workflow",
-      "keywords": ["skills", "agents", "usage", "analytics", "hook", "local"],
-      "homepage": "https://alextong.me/toolkit",
-      "license": "MIT"
-    },
-    {
-      "name": "context-diet",
-      "source": "./plugins/context-diet",
-      "description": "Audit what actually loads into every Claude Code session at startup — CLAUDE.md files, plugins, skills, subagents, MCP servers — with per-source token estimates and prune recommendations.",
-      "version": "0.1.0",
-      "author": {
-        "name": "Alex Tong",
-        "url": "https://alextong.me"
-      },
-      "category": "dev-workflow",
-      "keywords": ["context", "tokens", "audit", "budget", "startup", "prune"],
+      "keywords": [
+        "skills",
+        "agents",
+        "usage",
+        "analytics",
+        "hook",
+        "local"
+      ],
       "homepage": "https://alextong.me/toolkit",
       "license": "MIT"
     }

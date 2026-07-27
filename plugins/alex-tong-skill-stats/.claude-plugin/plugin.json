@@ -1,0 +1,20 @@
+{
+  "name": "alex-tong-skill-stats",
+  "version": "1.0.0",
+  "description": "Locally track which Claude Code skills and agents you actually invoke — surface the top hits and the ones you installed but never use. Ships a PreToolUse hook, so installing it is the opt-in; nothing ever leaves your machine.",
+  "author": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "homepage": "https://alextong.me/toolkit",
+  "repository": "https://github.com/alextongme/alex-tong-toolkit",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "agents",
+    "usage",
+    "analytics",
+    "hook",
+    "local"
+  ]
+}

@@ -1,0 +1,93 @@
+# __TEAM_NAME__ Workspace
+
+Claude Code workspace for the __TEAM_NAME__ team.
+
+## Quickstart
+
+```bash
+gh repo clone your-org/__TEAM_SLUG__-workspace
+cd __TEAM_SLUG__-workspace
+make setup            # clone all repos
+make setup-full       # clone + bootstrap deps
+```
+
+## Migrating from existing repos
+
+If you already have some of these repos cloned elsewhere, move them into the workspace directory before running setup:
+
+```bash
+mv ~/code/my-repo __TEAM_SLUG__-workspace/my-repo
+```
+
+Then run `make setup` — the setup script automatically skips repos that already exist in the workspace directory.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `make setup` | Clone all repos |
+| `make setup-full` | Clone + bootstrap deps |
+| `make update` | Pull latest across all cloned repos |
+| `make status` | Git status for all repos |
+| `make search QUERY='...'` | Search across all repos |
+| `make contracts-check` | Report staleness of files listed in `.contract-sources` |
+| `make gitignore` | Regenerate `.gitignore` from `repos.json` |
+| `make help` | Show all targets |
+
+### Filtering by tag
+
+Every repo in `repos.json` has a `tags` array. Any cross-repo target accepts `TAGS=a,b` to run only on repos whose tags overlap:
+
+```bash
+make update TAGS=orders         # Pull only repos tagged 'orders'
+make setup  TAGS=infra,shared   # Clone only repos tagged 'infra' or 'shared'
+make status TAGS=orders
+```
+
+Edit `repos.json` to add domain-specific tags (e.g. `["go", "orders"]`) — the default is the language group name.
+
+## Adding a repo
+
+1. Add it to `repos.json` (include at least one tag; optionally pin a `ref` like a commit SHA, tag, or branch)
+2. Run `make gitignore` to update .gitignore
+3. Run `make setup` (only clones the new repo, skips existing ones)
+4. Update `.claude/CLAUDE.md` with the repo's purpose and relationships
+5. Commit and push
+
+## Prerequisites
+
+**Required:**
+- `gh` (GitHub CLI) — must be authenticated (`gh auth status` to check)
+- `git`
+- `jq`
+
+**Recommended:**
+- `docker` — required for some local dev workflows
+
+## Recommended Claude Code plugins
+
+The setup script will prompt you to install these. You can also install manually:
+
+| Plugin | What it does |
+|--------|-------------|
+| `code-simplifier` | Reviews changed code for clarity and efficiency |
+| `skill-creator` | Create, modify, and eval custom skills |
+| `context7` | Fetches up-to-date library docs during sessions |
+
+```bash
+claude plugin install code-simplifier@claude-plugins-official
+claude plugin install skill-creator@claude-plugins-official
+claude plugin install context7@claude-plugins-official
+```
+
+## What is Claude Code?
+
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code) is Anthropic's CLI tool that gives Claude direct access to your codebase. This workspace includes a shared `CLAUDE.md` that teaches Claude about your repos, how they connect, deployment patterns, and team conventions — so every engineer on the team gets the same high-quality AI assistance out of the box.
+
+## Personal overrides
+
+Create `CLAUDE.local.md` (gitignored) for personal preferences, or `.claude/settings.local.json` for personal permission overrides. Neither is shared with the team.
+
+---
+
+*Generated with [alex-tong-engineering](https://alextong.me/toolkit/workspace) by [Alex Tong](https://alextong.me)*

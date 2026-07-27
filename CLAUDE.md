@@ -55,7 +55,7 @@ Client / NDA-grade work lives in its own private repo and never comes here — d
 
 Plugins in this toolkit run on other people's machines. That is a **trust position**, not a data-collection opportunity.
 
-- **No plugin sends anything anywhere over the network by default.** No telemetry, no phone-home, no "analytics." A plugin that logs locally (like `skill-stats`) is fine; a plugin that uploads is not — unless the entire plugin's purpose is uploading and the user explicitly triggers it every time.
+- **No plugin sends anything anywhere over the network by default.** No telemetry, no phone-home, no "analytics." A plugin that logs locally (like `alex-tong-skill-stats`) is fine; a plugin that uploads is not — unless the entire plugin's purpose is uploading and the user explicitly triggers it every time.
 - **Files a plugin writes must be readable only by the user.** Default to `chmod 600` on any log or state file. `~/.claude/skill-usage.jsonl` is the reference pattern.
 - **A plugin's hooks must never block Claude Code on failure.** `set +e`, `exit 0`, non-blocking file operations. A slow or broken hook must not degrade the user's session.
 - **Never invoke `curl` / `wget` / any network call from a plugin script without an obvious user-visible reason.** If a plugin needs network access, it goes in the description, in the README, and in the trigger.
@@ -112,21 +112,49 @@ Semver: patch for fixes, minor for features / enforcement changes, major for bre
 ### Structure
 
 ```
-.claude-plugin/marketplace.json          # top-level marketplace registry
+.claude-plugin/marketplace.json          # top-level marketplace registry + renames map
 plugins/<plugin-name>/
   .claude-plugin/plugin.json             # plugin manifest
-  skills/<skill-name>/SKILL.md           # skill (frontmatter + prompt)
+  README.md                              # what this plugin is and who it's for
+  skills/<skill-name>/SKILL.md           # skill (frontmatter + prompt) — ONE level deep
   hooks/hooks.json                       # optional PreToolUse / PostToolUse hooks
-  scripts/*.sh                           # optional shell backing hooks
+  scripts/*.sh                            # optional shell backing hooks
+in-progress/<name>/                      # built, not shipped, absent from marketplace.json
+.agents/adr/                             # architecture decision records
 ```
+
+### Plugins are grouped by audience, not by tool
+
+A plugin is the unit of installation and it is **all-or-nothing** — there is no way to install part of one. So the plugin boundary is the only lever for what lands in someone's skill list, and it gets drawn around *who the skills are for*: `alex-tong-engineering`, `alex-tong-education`, `alex-tong-career`.
+
+**Exception — a plugin that ships hooks stays standalone.** Installing is consenting. Folding a hook-carrying plugin into a bigger one means everyone who wanted the bigger one silently starts running the hook, which is the trust violation Rule 4 exists to prevent. `alex-tong-skill-stats` is separate for exactly this reason.
+
+Full reasoning: [`.agents/adr/0001-audience-scoped-plugins.md`](.agents/adr/0001-audience-scoped-plugins.md).
+
+### Two structural rules that are easy to get wrong
+
+**1. `skills/` is flat — exactly one level.** `plugins/<plugin>/skills/<skill>/SKILL.md`, never deeper. The loader scans one level below each skills root; anything nested deeper is **dropped silently** — the skill doesn't load, no warning fires, and `claude plugin validate` still passes. Verified empirically, not inferred. `validate-skills.js` now fails the build on it. If you want grouping, add a plugin.
+
+**2. A skill's identity is its DIRECTORY name.** The frontmatter `name` field is **not read** for identity — a skill in `skills/foo/` resolves to `foo` no matter what `name` says. Also verified empirically. Because that makes `name` pure documentation, and documentation drifts, `validate-skills.js` pins it: `name` must equal `"<plugin-manifest-name>:<skill-directory>"`. Rename a directory or a plugin and CI tells you what else to update.
+
+### Renaming or moving a plugin
+
+Add an entry to the `renames` map in `marketplace.json` (old name → new name). Claude Code loads the plugin under its new name, prints a one-line notice, and rewrites the user's `enabledPlugins` automatically. Without it, everyone with the old plugin installed silently loses it.
 
 ### Contributing
 
-Every plugin must:
-1. Have YAML frontmatter with `name: "<plugin>:<skill>"` and a trigger-loaded description including negative examples (`Do NOT use for: ...`).
-2. Include the standardized byline: `> From [Alex Tong's Toolkit](https://alextong.me/toolkit) by [Alex Tong](https://alextong.me) — more at [alextong.me/newsletter](https://alextong.me/newsletter)`
-3. Follow the Anthropic skill spec: Overview, Quick Reference, Requirements for Outputs, Process, worked Example, Edge Cases.
-4. Pass CI validation — parse-all-json, validate-marketplace, validate-skills, scan-safety, and fixture tests.
+Every skill must:
+1. Live at `plugins/<plugin>/skills/<skill-name>/SKILL.md`, one level deep.
+2. Have YAML frontmatter `name: "<plugin>:<skill-dir>"` matching the manifest and directory exactly, and a trigger-loaded description including negative examples (`Do NOT use for: ...`).
+3. Include the standardized byline: `> From [Alex Tong's Toolkit](https://alextong.me/toolkit) by [Alex Tong](https://alextong.me) — more at [alextong.me/newsletter](https://alextong.me/newsletter)`
+4. Follow the skill spec: Overview, Quick Reference, Requirements for Outputs, Process, worked Example, Edge Cases.
+5. Pass `bash tests/run.sh` — parse-all-json, validate-marketplace, validate-skills, scan-safety, and fixture tests. Same as CI.
+
+Not ready to ship? Put it in `in-progress/` and leave it out of `marketplace.json`. It is still validated, so a draft can't rot below the shipped bar.
+
+### Cross-references between skills
+
+When one skill names another in its description or body, it must use the **resolved** name (`alex-tong-engineering:claude-md-audit`), not a historical one. Regrouping plugins changes these, and a stale cross-reference points a user at a command that no longer exists. Grep before you finish.
 
 ---
 
