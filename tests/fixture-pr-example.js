@@ -3,7 +3,7 @@
 // contain every section the skill promises to emit, in the right shape.
 
 const fs = require("fs");
-const SKILL = "plugins/pr/skills/summary/SKILL.md";
+const SKILL = "plugins/alex-tong-engineering/skills/pr-summary-generator/SKILL.md";
 
 const content = fs.readFileSync(SKILL, "utf8");
 

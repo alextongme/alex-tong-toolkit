@@ -1,0 +1,21 @@
+{
+  "name": "alex-tong-engineering",
+  "version": "1.0.0",
+  "description": "Claude Code workflow skills for working engineers — scaffold and audit multi-repo workspaces, generate structured PR descriptions from a branch diff, audit CLAUDE.md and .claude/rules/ files for staleness, and measure what actually loads into every session at startup.",
+  "author": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "homepage": "https://alextong.me/toolkit",
+  "repository": "https://github.com/alextongme/alex-tong-toolkit",
+  "license": "MIT",
+  "keywords": [
+    "claude-md",
+    "code-review",
+    "context",
+    "monorepo",
+    "pull-request",
+    "tokens",
+    "workspace"
+  ]
+}
