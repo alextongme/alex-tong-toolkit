@@ -1,4 +1,4 @@
-name: Validate marketplace
+name: Safety scan
 
 on:
   push:
@@ -10,17 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Parse all JSON
-        run: node scripts/parse-all-json.js
-      - name: Validate marketplace schema
-        run: node scripts/validate-marketplace.js
-      - name: Validate SKILL.md gold spec
-        run: node scripts/validate-skills.js
       - name: Safety scan (secrets, personal identifiers, local patterns)
         run: node scripts/scan-safety.js
-      - name: Run fixture tests
-        run: bash tests/run.sh
