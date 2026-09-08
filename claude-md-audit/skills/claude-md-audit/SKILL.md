@@ -1,5 +1,5 @@
 ---
-name: "alex-tong-engineering:claude-md-audit"
+name: claude-md-audit
 description: >
   Review and score CLAUDE.md and .claude/rules/ files — use when asked to
   review, check, improve, rate, or audit Claude instruction files in any repo,
@@ -13,7 +13,7 @@ allowed-tools: ["Read", "Glob", "Grep"]
 
 # CLAUDE.md Audit
 
-> From [Alex Tong's Toolkit](https://alextong.me/toolkit) by [Alex Tong](https://alextong.me) — more at [alextong.me/newsletter](https://alextong.me/newsletter)
+> From **The AI Kitchen** by [Alex Tong](https://alextong.me) — updates, new skills, and walkthroughs at [The AI Kitchen](https://alextong.me/kitchen)
 
 You are a Claude Code instruction file auditor. Analyze all CLAUDE.md files and `.claude/rules/` files in the current repository against proven best practices and produce a structured scorecard with actionable recommendations.
 
@@ -54,7 +54,7 @@ $ARGUMENTS
 ### Scoring `.claude/rules/` files
 
 Rules files are modular by design — they cover one topic, not the whole repo. Adjust the rubric:
-- **T3 (right-sized):** 5–80 lines instead of 30–150. Under 3 lines is likely too thin.
+- **T3 (right-sized):** 5–80 lines instead of 10–150. Under 3 lines is likely too thin.
 - **Signal items:** Only score signal categories relevant to the file's topic. A `testing.md` rules file doesn't need S1 (system names) — mark irrelevant signals as "N/A" instead of "MISSING." Adjust the signal denominator in the score line to reflect only applicable items (e.g., `Signal: +2/4` if only S2, S3, S4, S5 apply).
 - **All noise checks still apply** — a rules file can still be a Wishlist or a Railroader.
 
@@ -94,7 +94,7 @@ Each item deducts points when detected. **Each line or block of content gets at 
 |---|-----------|--------|-----------------|
 | T1 | Includes the "why" | +1 | Rules include reasoning, not just directives. "3 attempts max — we've seen Claude burn 20 min in retry loops" beats bare "3 attempts max." Understanding the reasoning helps Claude generalize to edge cases the rule didn't anticipate. |
 | T2 | No hierarchy duplication | +1 | Repo CLAUDE.md doesn't repeat content already in parent files (~/.claude/CLAUDE.md, workspace CLAUDE.md). Skip if parent files are inaccessible — note "T2 skipped" and exclude from the structure denominator. |
-| T3 | Right-sized | +1 | For CLAUDE.md: 30–150 lines earns the point. 151–300 lines: no T3 credit but no N1 penalty either — a warning zone. Over 300: no T3 credit AND triggers N1. Under 10: no T3 credit. For rules files: 5–80 lines earns the point. |
+| T3 | Right-sized | +1 | For CLAUDE.md: 10–150 lines earns the point. A short file that says only what the repo cannot is the goal, not a defect. 151–300 lines: no T3 credit but no N1 penalty either — a warning zone. Over 300: no T3 credit AND triggers N1. Under 10: no T3 credit. For rules files: 5–80 lines earns the point. |
 
 **Maximum structure score: 3** (2 if T2 is skipped)
 
@@ -159,7 +159,7 @@ If multiple files were audited, end with an aggregate table:
 
 ## Hierarchy Mode
 
-Triggered by `/audit hierarchy`. Analyzes how all loaded CLAUDE.md files work together across the full resolution stack, rather than scoring each file independently.
+Triggered by `/claude-md-audit hierarchy`, or by asking for a hierarchy audit in plain language. Analyzes how all loaded CLAUDE.md files work together across the full resolution stack, rather than scoring each file independently.
 
 ### Load order (most general → most specific)
 
@@ -223,7 +223,7 @@ Run these cross-file checks (do not re-score individual files):
 2. [Second priority]
 ```
 
-Hierarchy mode does not produce per-file scorecards. Run `/audit` (no arguments) for those. The two modes are complementary — scorecards judge quality within a file; hierarchy mode judges the system.
+Hierarchy mode does not produce per-file scorecards. Run `/claude-md-audit` (no arguments) for those. The two modes are complementary — scorecards judge quality within a file; hierarchy mode judges the system.
 
 ## Rules
 

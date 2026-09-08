@@ -1,0 +1,88 @@
+# Status Line  —  v1.0.0
+
+Replaces the default Claude Code status line with a compact two-line readout:
+
+```
+Opus  my-project  main
+82% left  $1.47  14m
+```
+
+**Line 1** — model, project folder, git branch. A branch in a worktree shows as `⌥ branch` in purple, so you always know which tree you're in.
+
+**Line 2** — how much context window is left (green above 50%, amber above 20%, red below), what this session has cost you so far, and how long it's been running. Each piece only appears when Claude Code reports it, so a fresh session stays quiet.
+
+The context percentage is the point. Knowing you're at 12% *before* Claude starts forgetting the thing you told it forty messages ago is the difference between compacting on purpose and getting compacted by surprise.
+
+---
+
+## Requirements
+
+**`jq`** — the script parses the JSON Claude Code pipes in. Check first, because you may already have it:
+
+```bash
+jq --version
+```
+
+Recent macOS ships `jq` at `/usr/bin/jq` (it reports as `jq-1.7.1-apple`), so most Mac users need to do nothing here. If the command errors, install it:
+
+- **macOS:** `brew install jq`
+- **Debian / Ubuntu:** `sudo apt install jq`
+- **Windows:** use WSL, or `winget install jqlang.jq`
+
+## Install (about a minute)
+
+**1. Copy the script into your Claude config folder and make it executable.** From the root of a clone of this repo:
+
+```bash
+cp statusline/statusline-command.sh ~/.claude/statusline-command.sh
+chmod +x ~/.claude/statusline-command.sh
+```
+
+**2. Point Claude Code at it.** Open `~/.claude/settings.json` and add the `statusLine` block at the top level, alongside whatever is already in there:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/statusline-command.sh"
+  }
+}
+```
+
+If the file already has other keys, add `statusLine` as one more key — don't replace the file. If `~/.claude/settings.json` doesn't exist yet, create it with exactly the block above.
+
+**3. Restart Claude Code.** The status line renders at the bottom of the terminal.
+
+## Customizing it
+
+It's a bash script — everything is editable, and the four things people usually change are:
+
+- **Colors** — the block near the top under `── Colors ──`. They're 24-bit RGB escapes (`\033[38;2;R;G;Bm`), so any hex color drops straight in.
+- **The context thresholds** — the `pct > 50` and `pct > 20` lines decide when green becomes amber becomes red.
+- **What's on line 2** — each metric is its own `if` block. Delete the cost block if you're on a flat plan and it's just noise.
+- **Truncation widths** — `truncate "$project" 20` and `truncate "$branch" 18`. Raise them if you have a wide terminal and long branch names.
+
+To test a change without restarting, pipe fake state at it:
+
+```bash
+echo '{"cwd":"'"$PWD"'","model":{"display_name":"Opus"},"context_window":{"remaining_percentage":42},"cost":{"total_cost_usd":1.23,"total_duration_ms":840000}}' | bash ~/.claude/statusline-command.sh
+```
+
+## Updating
+
+`git pull` in your clone, then copy the script again. **The AI Kitchen posts a one-line changelog every time a version lands** — https://alextong.me/kitchen
+
+Your version: see `VERSION` in this folder.
+
+## Troubleshooting
+
+- **You see the folder and branch, but no model name and an empty second line.** That's the missing-`jq` signature — every field it parses comes back empty. Run `jq --version`.
+- **Line 1 is fine but the context percentage or cost never appears.** Your Claude Code version isn't reporting `context_window` or `cost` in the status line payload. Update Claude Code.
+- **Nothing appears at all.** The `statusLine` block isn't being read. Check `~/.claude/settings.json` is valid JSON (`jq . ~/.claude/settings.json` will tell you), and that you restarted Claude Code.
+- **Colors look wrong or show as raw escape codes.** Your terminal doesn't support 24-bit color. iTerm2, Ghostty, Alacritty, WezTerm, and modern Terminal.app all do; older setups may not.
+- **`permission denied`.** You skipped `chmod +x`.
+
+---
+
+*From **The AI Kitchen** by [Alex Tong](https://alextong.me). Questions, or it didn't work?
+Post in the community — https://alextong.me/kitchen*
