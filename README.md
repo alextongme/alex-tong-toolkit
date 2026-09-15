@@ -15,18 +15,20 @@ One folder per video. The next video adds the next folder.
 
 ## Install
 
-```bash
-git clone https://github.com/alextongme/alex-tong-toolkit.git
-mkdir -p ~/.claude/skills && cp -R alex-tong-toolkit/claude-md-audit/skills/claude-md-audit ~/.claude/skills/
+This repo is a Claude Code plugin marketplace. Inside Claude Code:
+
+```
+/plugin marketplace add alextongme/alex-tong-toolkit
+/plugin install claude-md-audit@alex-tong-toolkit
 ```
 
-Restart Claude Code, then run `/claude-md-audit` in any repo.
+Then run `/claude-md-audit` in any repo. Updates arrive with `/plugin update`. The skill's own page, with every mode and a real scorecard: [`claude-md-audit/`](./claude-md-audit).
 
-The status line needs one block in `~/.claude/settings.json`, so it has its own steps: [`statusline/INSTALL.md`](./statusline/INSTALL.md). Every folder carries an `INSTALL.md` and a `VERSION`.
+The status line is a script plus one block in `~/.claude/settings.json`, so it has its own steps: [`statusline/INSTALL.md`](./statusline/INSTALL.md). Every folder carries its own readme and a `VERSION`.
 
 ## Updates, changelog, questions
 
-New versions land here and in [The AI Kitchen](https://alextong.me/kitchen) at the same time. The Kitchen is where I post the one-line changelog for each version, answer questions, and keep the skills that have not had their video yet.
+This repo is the source of truth. [The AI Kitchen](https://alextong.me/kitchen) is where I post the one-line changelog for each version, answer questions, and review your CLAUDE.md if you post it.
 
 If one of these saved you time, a star tells me which ones to make more of.
 

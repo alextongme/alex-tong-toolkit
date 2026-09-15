@@ -1,0 +1,12 @@
+{
+  "name": "claude-md-audit",
+  "description": "Scores every CLAUDE.md and .claude/rules file in a repo out of 11 and names the exact lines to cut. Read-only during the audit.",
+  "version": "1.0.3",
+  "author": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "homepage": "https://github.com/alextongme/alex-tong-toolkit",
+  "license": "MIT",
+  "keywords": ["claude-md", "context", "audit", "rules"]
+}
