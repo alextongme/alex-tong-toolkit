@@ -54,6 +54,46 @@ scripts/scan-safety.js     the safety scanner (credential formats and generic pa
 3. Add its row to the root README and, if the install differs from the marketplace commands, one sentence pointing at its folder.
 4. Release as above.
 
+## 🚦 HARD RULE — every skill is a gated framework, never an all-in-one
+
+*(Added 2026-09-19 by Alex. This governs what a skill in this repo IS, so it sits with the hard rules, not with conventions.)*
+
+**Alex, verbatim:**
+
+> *"our skills should never be a 'all in one', 'run this skill and it will do everything for you' type thing. i want my skills to have various 'gates' at each point. these gates are point where it needs FEEDBACK from the user. the idea behind these skills i make is to give people automated frameworks on doing something maybe they dont have a lot of knowledge about, but still ask them for enough input and decision making so that whatever the skill outputs is actually custom to their wants and needs rather than just a generic cookie cutter output from whatever AI spit out."*
+
+**The product is not the output. The product is the framework plus the user's judgment, and the gates are where the judgment gets in.** A skill that runs end to end and hands back a finished artifact has produced *the model's* answer to a generic version of the problem. Someone who does not know the domain should get a competent structure, and **their own situation is what fills it in.**
+
+### The one-line test
+
+> **Could the user have gotten this exact output without answering anything?**
+> If yes, either the gate is decorative or the output is generic. Both fail.
+
+### Where gates go, and where they must not
+
+The placement rules matter more than the count, because a wall of questions before any value is what loses users. In the SEO-skill market the tool with **zero** credentials and a first-turn answer has ~210,000 installs; a better-engineered competitor that opens with *"stop and ask the user to connect"* has ~7,200. **29:1 on the gate alone.**
+
+1. **Never gate before the first deliverable.** The first turn produces something real from what the skill can get by itself. Questions come after the user has seen it work.
+2. **Every question ships with a recommended answer.** This turns an interrogation into an approval, which costs seconds instead of minutes. One question at a time.
+3. **If the repo, the page, or the file can answer it, go read it instead of asking.** Never ask for something you could have looked up.
+4. **Ask only what the next step needs.** A gate is scoped to the decision in front of it. The full intake is deferred, not front-loaded.
+5. **Scale the gates to the job.** A one-file question gets one gate or none; a real engagement gets the whole chain. Proportionality is what stops this rule becoming ceremony.
+6. **Gates run BEFORE the work, never after.** A gate that can block finished work from shipping is the wrong kind and does not go in a skill here.
+
+### Taking input in bulk
+
+Default is inline questions, multiple choice plus free text. When a skill genuinely needs a lot at once, **write a local markdown intake file with blanks and recommended defaults pre-filled, let the user edit it, and read it back.** Local, no network, no account, versionable, survives sessions and machines.
+
+🔴 **Never a hosted form, a Google Form, or anything that sends the user's answers off their machine** — that violates hard rule 4 above. A generated HTML form has the same problem the moment it needs to send results anywhere.
+
+### What a gated skill looks like in practice
+
+- Several skills in one plugin, chained, each ending by naming the next.
+- Permissions differ by stage: the skill that diagnoses cannot write; only the skill that applies can.
+- A written artifact between stages, so a later stage can check what an earlier stage asked for.
+- One step, one approval, on anything that changes the user's files or reaches outside their machine.
+- An output the skill is allowed to refuse to produce, with the reason and what would change it.
+
 ## Conventions
 
 - Skills use `model: inherit`. A pinned model silently switches the user's session model for the turn, and a plan that lacks the pinned model falls back anyway. If a skill genuinely needs a stronger model, say so in its `README.md` instead of pinning.
