@@ -75,7 +75,26 @@ function expandHome(p) {
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
 }
 
-function findConfigPath(explicit) {
+// Where a site with no code project keeps its config and its snapshots. Most
+// people auditing a site do not have its source: Squarespace, Wix, Shopify and
+// hosted WordPress give you a URL and nothing to `cd` into. One folder per
+// host, so the second run finds the first run's baseline without being told
+// where it went.
+const AUDIT_HOME = join(homedir(), "seo-audits");
+
+function auditHomeFor(site) {
+  const host = String(site).replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/[^a-z0-9.-]/gi, "-");
+  return join(AUDIT_HOME, host);
+}
+
+const PROJECT_MARKERS = [
+  ".git", "package.json", "astro.config.mjs", "astro.config.js", "next.config.js",
+  "next.config.mjs", "gatsby-config.js", "hugo.toml", "_config.yml", "Gemfile", "index.html",
+];
+const looksLikeProject = (dir) => PROJECT_MARKERS.some((m) => existsSync(join(dir, m)));
+
+function findConfigPath(flags = {}) {
+  const explicit = flags.config;
   if (explicit && explicit !== true) return expandHome(explicit);
   // Walk up from the working directory so the script works from a subfolder.
   let dir = process.cwd();
@@ -86,11 +105,30 @@ function findConfigPath(explicit) {
     if (up === dir) break;
     dir = up;
   }
+  // Nothing here and nothing above: this may be a site with no code, set up
+  // by `init` under ~/seo-audits/<host>/.
+  if (!existsSync(AUDIT_HOME)) return null;
+  if (flags.site && flags.site !== true) {
+    const byHost = join(auditHomeFor(flags.site), CONFIG_NAME);
+    return existsSync(byHost) ? byHost : null;
+  }
+  const homes = readdirSync(AUDIT_HOME, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && existsSync(join(AUDIT_HOME, e.name, CONFIG_NAME)))
+    .map((e) => join(AUDIT_HOME, e.name, CONFIG_NAME));
+  if (homes.length === 1) return homes[0];
+  if (homes.length > 1) {
+    // Same rule as an ambiguous snapshot label: a guess here would silently
+    // audit somebody else's site.
+    throw new Error(
+      `No ${CONFIG_NAME} here, and ${homes.length} sites are set up in ${AUDIT_HOME}:\n  ` +
+      `${homes.join("\n  ")}\nPass --site <url>, or --config <path>.`,
+    );
+  }
   return null;
 }
 
 function loadConfig(flags = {}) {
-  const path = findConfigPath(flags.config);
+  const path = findConfigPath(flags);
   let raw = {};
   if (path) {
     try {
@@ -304,6 +342,11 @@ function classifyResponse(res, body = "") {
   if (res.status === 503 && /cloudflare|just a moment|attention required|checking your browser/i.test(body)) {
     return "blocked";
   }
+  // A 5xx that is not a challenge is the server failing, not a page to read.
+  // It only became reachable here once fetchWithRetry stopped throwing on the
+  // last attempt; before that it arrived as a caught exception and was classed
+  // `error` on the way past.
+  if (res.status >= 500) return "error";
   return "ok";
 }
 
@@ -311,14 +354,14 @@ const MAX_REDIRECTS = 5;
 
 // Redirects are followed by hand so every hop can be re-validated, and so the
 // chain itself is recorded: `redirect: "follow"` hides both.
-async function fetchPageSafely(url, options = {}) {
+async function fetchPageSafely(url, options = {}, tries = 3) {
   const chain = [];
   let current = url;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     // Each hop goes through fetchWithRetry, so each hop is re-validated: a
     // public hostname is allowed to redirect to a private one, and that is
     // the case a single up-front check misses.
-    const res = await fetchWithRetry(current, { ...options, redirect: "manual" });
+    const res = await fetchWithRetry(current, { ...options, redirect: "manual" }, tries);
     if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
       const next = new URL(res.headers.get("location"), current).toString();
       chain.push({ from: current, status: res.status, to: next });
@@ -341,6 +384,13 @@ async function fetchWithRetry(url, options = {}, tries = 3) {
     try {
       const res = await fetch(url, { ...options, signal: AbortSignal.timeout(60_000) });
       if (res.status === 429 || res.status >= 500) {
+        // Out of attempts: hand the caller the real response rather than
+        // throwing. Giving up here is what made `rate_limited` and a
+        // Cloudflare 503 challenge unreachable — both arrived at the
+        // classifier as a caught exception and were recorded as `error`,
+        // which is the opposite finding. A request that never got an answer
+        // at all still throws, below.
+        if (i === tries - 1) return res;
         lastErr = new Error(`HTTP ${res.status}`);
         await sleep(3000 * 2 ** i); // 3s, 6s, 12s, 24s, 48s
         continue;
@@ -536,6 +586,49 @@ function normalizeLink(href, from) {
   } catch { return null; }
 }
 
+// Text that talks to an assistant instead of to a reader. This is not a
+// prompt-injection defence — nothing here is ever executed — it is a finding
+// about the site: somebody has been trying to instruct assistants through this
+// domain's content, which gets sites penalised and which the owner may not
+// know about. The patterns are deliberately narrow. A missed instruction costs
+// one finding; a false one accuses the owner of gaming, so the snippet is
+// stored for a human to read rather than reported as a verdict.
+const ASSISTANT_ADDRESSED = [
+  /ignore\s+(?:all\s+|any\s+)?(?:previous|prior|above|preceding)\s+instructions?/i,
+  /(?:disregard|override|forget)\s+(?:your|all|any|the)\s+(?:previous\s+)?(?:instructions?|system\s+prompt|guidelines?|rules?)/i,
+  /\bif\s+you(?:'re|\s+are)\s+(?:an?\s+)?(?:ai|a\s+language\s+model|an?\s+assistant|a\s+chatbot|an?\s+llm)\b/i,
+  /\b(?:attention|note|instructions?|prompt)\s*[:,-]\s*(?:ai|llm|language\s+model|assistants?|chatgpt|claude|gemini|perplexity|copilot)\b/i,
+  /\b(?:ai|llm|language\s+model|assistants?|chatgpt|claude|gemini|perplexity|copilot)s?\s*[,:]?\s*(?:please\s+)?(?:always\s+)?(?:recommend|cite|rank|mention|prioriti[sz]e|prefer)\s+(?:this|our|us\b)/i,
+  /\bwhen\s+(?:asked|answering|recommending)\b[^.<]{0,80}\b(?:recommend|cite|mention)\s+(?:this|our|us)\b/i,
+];
+
+function findAssistantAddressed(...texts) {
+  const out = [];
+  for (const text of texts) {
+    if (!text) continue;
+    for (const re of ASSISTANT_ADDRESSED) {
+      const m = text.match(re);
+      if (!m) continue;
+      const at = m.index ?? 0;
+      // Enough either side that the reporter can see what it is attached to.
+      const snippet = text.slice(Math.max(0, at - 80), at + m[0].length + 120).replace(/\s+/g, " ").trim();
+      if (!out.includes(snippet)) out.push(snippet);
+      if (out.length >= 3) return out;
+    }
+  }
+  return out;
+}
+
+// Server headers worth freezing. Nothing in v1.0 reads these beyond
+// X-Robots-Tag: they are here because a baseline taken without them can never
+// show that a site was replatformed, and a snapshot cannot be taken
+// retroactively.
+const CAPTURED_HEADERS = [
+  "server", "x-powered-by", "x-generator", "via", "content-encoding",
+  "strict-transport-security", "cf-cache-status", "x-shopify-stage",
+  "x-wix-request-id", "x-vercel-id", "x-served-by", "x-github-request-id",
+];
+
 async function crawlPage(url, base, site = base) {
   const started = Date.now();
   let res, finalUrl, chain;
@@ -573,6 +666,10 @@ async function crawlPage(url, base, site = base) {
 
   const ld = jsonLdBlocks(html);
   const text = stripTags(html);
+  // Comments are included because an instruction aimed at a crawler is more
+  // often hidden than printed.
+  const comments = [...html.matchAll(/<!--([\s\S]*?)-->/g)].map((m) => m[1]).join(" ");
+  const assistantAddressed = findAssistantAddressed(text, comments, JSON.stringify(ld));
 
   return {
     url,
@@ -596,6 +693,12 @@ async function crawlPage(url, base, site = base) {
     // this crawler started reading response headers at all.
     xRobotsTag: res.headers.get("x-robots-tag"),
     contentType: res.headers.get("content-type"),
+    headers: Object.fromEntries(
+      CAPTURED_HEADERS.map((h) => [h, res.headers.get(h)]).filter(([, v]) => v != null),
+    ),
+    // Names the CMS on WordPress, Ghost, Hugo, Drupal and some Squarespace
+    // templates. Captured now, read by seo-plan later.
+    generator: metaContent(html, "generator"),
     canonical: canonicalTag ? attr(canonicalTag[0], "href") : null,
     og: {
       title: metaContent(html, "og:title", "property"),
@@ -619,6 +722,9 @@ async function crawlPage(url, base, site = base) {
     // sameAs is the entity graph; it is the single most load-bearing field in
     // the "is this the right Alex Tong" question, so it is captured verbatim.
     sameAs: ld.flatMap((x) => (Array.isArray(x.sameAs) ? x.sameAs : x.sameAs ? [x.sameAs] : [])).sort(),
+    // Candidate snippets, never a verdict: the reporter reads them before
+    // quoting one. Empty on almost every page, and that is the expected case.
+    assistantAddressed,
   };
 }
 
@@ -696,14 +802,43 @@ function robotsVerdict(groups, botName) {
 // blocking (now on by default for new zones) never appears in robots.txt, so a
 // clean file and an open site are different facts — the same presence-vs-liveness
 // trap that let a dead Bing key report as healthy. One live probe per operator,
-// which is cheap and is the only half of this check that measures the world.
+// which is cheap and is the only half of this check that touches the world.
+//
+// 🔴 And it is a weak instrument, which is the whole reason this comment is
+// long. The request presents another operator's crawler name from a laptop
+// that is not on that operator's published address list, which is exactly the
+// pattern bot management challenges. A refusal therefore measures whether the
+// edge refuses *impersonators*, and the real GPTBot may be walking straight
+// in. So: a 200 is an `allowed`. Everything else is UNKNOWN, reported as what
+// was sent and what came back, and it never produces a blocked verdict on its
+// own — only robots.txt can do that.
 async function probeAiCrawler(base, botName) {
   const ua = `Mozilla/5.0 (compatible; ${botName}/1.0; +https://example.com/bot)`;
+  const sent = `User-agent: ${ua}`;
   try {
-    const res = await fetch(base, { headers: { "user-agent": ua }, redirect: "follow" });
-    return { bot: botName, status: res.status, blocked: res.status === 401 || res.status === 403 || res.status === 429 };
+    // Through the guard like every other request, and with retries off: a 429
+    // is the answer here, not a reason to back off and ask again.
+    const { res } = await fetchPageSafely(base, { headers: { "user-agent": ua } }, 1);
+    const body = await res.text().catch(() => "");
+    return {
+      bot: botName,
+      sent,
+      status: res.status,
+      fetchClass: classifyResponse(res, body.slice(0, 2000)),
+      state: res.status === 200 ? "allowed" : "unknown",
+      note: res.status === 200
+        ? `the edge served a request presenting as ${botName} from this machine`
+        : `the edge answered ${res.status} to a request presenting as ${botName} from this machine — ` +
+          `that may be a block on ${botName}, or a block on anything impersonating it. This probe cannot tell them apart`,
+    };
   } catch (err) {
-    return { bot: botName, error: String(err.message || err) };
+    return {
+      bot: botName,
+      sent,
+      state: "unknown",
+      error: String(err.message || err),
+      note: "the probe never got an answer, which says nothing about the crawler",
+    };
   }
 }
 
@@ -733,12 +868,15 @@ async function checkAiCrawlers(base, robotsText, robotsStatus) {
   }
 
   const blocked = Object.entries(bots).filter(([, v]) => v.state === "blocked").map(([k]) => k);
-  const probeBlocked = probes.filter((p) => p.blocked).map((p) => p.bot);
+  // The verdict is robots.txt's alone. A probe that was refused is an UNKNOWN
+  // about an instrument, and an unknown never hardens into a finding.
+  const probeUnknown = probes.filter((p) => p.state !== "allowed").map((p) => p.bot);
   return {
     robotsTxt: "read",
-    verdict: blocked.length || probeBlocked.length ? "blocked" : "allowed",
+    verdict: blocked.length ? "blocked" : "allowed",
+    verdictFrom: "robots.txt",
     blocked,
-    probeBlocked,
+    probeUnknown,
     bots,
     probes,
   };
@@ -756,25 +894,176 @@ function reportAiCrawlers(ai) {
     const paths = v.paths ? paint(`  ${v.paths.join(" ")}`, C.dim) : "";
     console.log(`  ${name.padEnd(20)} ${label[v.state]}${paths}  ${paint(`(${v.operator} — ${v.purpose}; via ${v.via})`, C.dim)}`);
   }
-  for (const pr of ai.probes) {
-    const verdict = pr.error ? warn(`probe failed: ${pr.error}`)
-      : pr.blocked ? bad(`edge returned ${pr.status}`)
-      : ok(`edge returned ${pr.status}`);
-    console.log(`  ${paint("live probe", C.dim)} ${pr.bot.padEnd(14)} ${verdict}`);
+  if (ai.probes?.length) {
+    console.log(paint("\n  Live probe — what the edge did with a request carrying each bot's name", C.dim));
+    for (const pr of ai.probes) {
+      const verdict = pr.state === "allowed" ? ok(`allowed (HTTP ${pr.status})`)
+        : warn(pr.error ? `UNKNOWN (${pr.error})` : `UNKNOWN (HTTP ${pr.status})`);
+      console.log(`  ${paint("probe", C.dim)} ${pr.bot.padEnd(16)} ${verdict}`);
+      console.log(`        ${paint(`sent ${pr.sent}`, C.dim)}`);
+      console.log(`        ${paint(pr.note, C.dim)}`);
+    }
+    console.log(paint(
+      "  An UNKNOWN here is not a blocked crawler. This machine is not on any of these\n" +
+      "  operators' published address lists, so a refusal may be aimed at impersonators.\n" +
+      "  Only the robots.txt table above states whether a bot is blocked.", C.dim));
   }
   if (ai.verdict === "blocked") {
-    console.log(bad(`  → ${[...ai.blocked, ...ai.probeBlocked].join(", ")} cannot read this site.`));
+    console.log(bad(`  → robots.txt blocks ${ai.blocked.join(", ")}.`));
   }
 }
 
-async function fetchSitemapUrls(base) {
-  const res = await fetchWithRetry(`${base}/sitemap.xml`);
+// ----------------------------------------------------------------- sitemaps
+//
+// A crawl is only ever as honest as the list it starts from, and
+// `${base}/sitemap.xml` is the wrong list on most of the web. Checked against
+// live sites on 2026-09-19: Yoast declares `/sitemap_index.xml` in robots.txt,
+// WordPress core serves `/wp-sitemap.xml`, and Shopify, Jetpack and WordPress
+// core all serve a **`<sitemapindex>`** — a list of sitemaps — at the path a
+// naive crawler reads as a list of pages.
+//
+// That last one is the dangerous case, because it does not fail. The `<loc>`
+// entries in an index point at child sitemaps, so the crawl fetches five XML
+// files and files them as pages with no title, no H1 and no schema, and the
+// canary passes on the way in. A wrong answer produced confidently in the
+// first request is worse than no answer.
+//
+// So: read the `Sitemap:` lines out of robots.txt (already fetched), fall back
+// to a short path list, and follow exactly one level of index.
+
+const SITEMAP_FALLBACK_PATHS = ["/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml"];
+const MAX_CHILD_SITEMAPS = 50;
+// Two levels, not one, and the second level was bought with a live check
+// rather than reasoned about: ma.tt (Jetpack) serves index → index → urlset,
+// so stopping at one level reads 9 URLs of a site with thousands — a clean
+// 100% coverage figure over the wrong denominator. Anything deeper than this
+// is recorded as not followed, because an undercount that says so is a gap
+// and an undercount that does not is a lie.
+const MAX_SITEMAP_DEPTH = 2;
+
+// The status code lies in both directions here, so the body is the test:
+// make.wordpress.org serves a valid sitemap index under HTTP 404, and a
+// WordPress 404 page is served as HTML at every path you guess.
+const looksLikeSitemap = (xml) => /<(sitemapindex|urlset)\b/i.test(xml);
+const isSitemapIndex = (xml) => /<sitemapindex\b/i.test(xml);
+const locsIn = (xml) =>
+  [...xml.matchAll(/<loc>\s*([^<\s][^<]*?)\s*<\/loc>/gi)].map((m) => decodeEntities(m[1].trim()));
+
+// Every `Sitemap:` line, in order. A site may declare several — a WordPress
+// multisite declares dozens — and by spec the value is an absolute URL.
+function sitemapLinesFrom(robotsText) {
+  if (!robotsText) return [];
+  return [...robotsText.matchAll(/^[ \t]*sitemap[ \t]*:[ \t]*(\S+)/gim)].map((m) => m[1].trim());
+}
+
+async function fetchSitemapDoc(url) {
+  const { res, finalUrl } = await fetchPageSafely(url, {
+    headers: { "user-agent": "seo-audit-snapshot/1 (+https://github.com/alextongme/alex-tong-toolkit)" },
+  });
   const xml = await res.text();
-  return [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1].trim());
+  return { url, finalUrl, status: res.status, xml, isSitemap: looksLikeSitemap(xml) };
+}
+
+// Returns the URLs *and how they were found*, because "which sitemap did you
+// actually read" is itself a finding, and the canary has to be able to print
+// it rather than a bare count.
+async function discoverSitemap(base, { robotsText } = {}) {
+  let robots = robotsText;
+  if (robots === undefined) {
+    const res = await fetchWithRetry(`${base}/robots.txt`).catch(() => null);
+    robots = res && res.ok ? await res.text() : null;
+  }
+
+  const tried = [];
+  const roots = [];
+  const consider = async (url, via) => {
+    let doc;
+    try {
+      doc = await fetchSitemapDoc(url);
+    } catch (err) {
+      tried.push({ url, via, error: String(err.message || err) });
+      return null;
+    }
+    tried.push({ url: doc.finalUrl, via, status: doc.status, isSitemap: doc.isSitemap });
+    return doc.isSitemap ? { ...doc, via } : null;
+  };
+
+  // A declared sitemap beats a guessed one outright: it is what the site says
+  // about itself, and guessing is only ever a fallback.
+  for (const url of sitemapLinesFrom(robots).slice(0, MAX_CHILD_SITEMAPS)) {
+    const doc = await consider(url, "robots.txt Sitemap:");
+    if (doc) roots.push(doc);
+  }
+  if (!roots.length) {
+    for (const path of SITEMAP_FALLBACK_PATHS) {
+      const doc = await consider(`${base}${path}`, "fallback path");
+      if (doc) { roots.push(doc); break; }
+    }
+  }
+
+  const urls = [];
+  const pageSeen = new Set();
+  const push = (locs) => {
+    for (const u of locs) if (!pageSeen.has(u)) { pageSeen.add(u); urls.push(u); }
+  };
+  const fetched = new Set(roots.map((r) => r.finalUrl));
+  const children = [];
+  const notFollowed = [];
+
+  const pending = roots.map((doc) => ({ doc, depth: 0 }));
+  while (pending.length) {
+    const { doc, depth } = pending.shift();
+    if (!isSitemapIndex(doc.xml)) { push(locsIn(doc.xml)); continue; }
+    for (const childUrl of locsIn(doc.xml)) {
+      if (fetched.has(childUrl)) continue;
+      if (depth + 1 > MAX_SITEMAP_DEPTH) {
+        notFollowed.push({ url: childUrl, why: `nested more than ${MAX_SITEMAP_DEPTH} levels deep` });
+        continue;
+      }
+      if (children.length >= MAX_CHILD_SITEMAPS) {
+        notFollowed.push({ url: childUrl, why: `more than ${MAX_CHILD_SITEMAPS} sitemaps already read` });
+        continue;
+      }
+      fetched.add(childUrl);
+      let child;
+      try {
+        child = await fetchSitemapDoc(childUrl);
+      } catch (err) {
+        notFollowed.push({ url: childUrl, why: String(err.message || err) });
+        continue;
+      }
+      if (!child.isSitemap) {
+        notFollowed.push({ url: childUrl, why: `HTTP ${child.status}, and the body is not a sitemap` });
+        continue;
+      }
+      const index = isSitemapIndex(child.xml);
+      children.push({ url: child.finalUrl, depth: depth + 1, index, urls: index ? null : locsIn(child.xml).length });
+      pending.push({ doc: child, depth: depth + 1 });
+    }
+  }
+
+  return {
+    base,
+    urls,
+    roots: roots.map((r) => ({ url: r.finalUrl, via: r.via, status: r.status, index: isSitemapIndex(r.xml) })),
+    children,
+    notFollowed,
+    tried,
+  };
+}
+
+async function fetchSitemapUrls(base, opts) {
+  return (await discoverSitemap(base, opts)).urls;
 }
 
 async function crawlSite(base, { concurrency = 4, site = base } = {}) {
-  const sitemapUrls = await fetchSitemapUrls(base);
+  // robots.txt first. It was already being fetched — just after the crawl that
+  // needed it — and it is where a site declares where its real sitemap lives.
+  const robotsRes = await fetchWithRetry(`${base}/robots.txt`).catch(() => null);
+  const robots = robotsRes && robotsRes.ok ? await robotsRes.text() : null;
+
+  const sitemap = await discoverSitemap(base, { robotsText: robots });
+  const sitemapUrls = sitemap.urls;
   // A snapshot taken against a local build must compare like-for-like with the
   // production one, so rewrite sitemap hosts onto whatever base we were given.
   const urls = sitemapUrls.map((u) => (base === site ? u : u.replace(site, base)));
@@ -787,8 +1076,6 @@ async function crawlSite(base, { concurrency = 4, site = base } = {}) {
   }
   process.stdout.write("\n");
 
-  const robotsRes = await fetchWithRetry(`${base}/robots.txt`).catch(() => null);
-  const robots = robotsRes && robotsRes.ok ? await robotsRes.text() : null;
   const aiCrawlers = await checkAiCrawlers(base, robots, robotsRes?.status ?? null);
 
   // Coverage and health are separate numbers and must never be mixed. A page
@@ -836,6 +1123,14 @@ async function crawlSite(base, { concurrency = 4, site = base } = {}) {
     base,
     capturedAt: new Date().toISOString(),
     sitemapUrlCount: urls.length,
+    // Which sitemap was read, how it was found, and what was left unread. A
+    // page count means nothing without the list it was counted from.
+    sitemap: {
+      roots: sitemap.roots,
+      children: sitemap.children,
+      notFollowed: sitemap.notFollowed,
+      tried: sitemap.tried,
+    },
     robots,
     // Whether the assistants are allowed in at all. Captured with every crawl so
     // it lands in each snapshot and shows up in a diff the day it changes —
@@ -871,7 +1166,10 @@ async function crawlSite(base, { concurrency = 4, site = base } = {}) {
       noindex: fetched.filter((p) => (p.robots || "").includes("noindex")).map((p) => p.url),
       duplicateTitles: [...titles].filter(([, n]) => n > 1).map(([t, n]) => ({ title: t, count: n })),
       duplicateDescriptions: [...descs].filter(([, n]) => n > 1).map(([d, n]) => ({ description: d, count: n })),
-      titleTooLong: fetched.filter((p) => p.titleLength > 60).map((p) => ({ url: p.url, length: p.titleLength })),
+      // Not "too long": Google has no character limit, it truncates to the
+      // width available on the reader's device. Sixty is a display estimate
+      // and the field name now says exactly that much and no more.
+      titleOver60Chars: fetched.filter((p) => p.titleLength > 60).map((p) => ({ url: p.url, length: p.titleLength })),
       descriptionOutOfRange: fetched
         .filter((p) => p.description && (p.descriptionLength < 70 || p.descriptionLength > 160))
         .map((p) => ({ url: p.url, length: p.descriptionLength })),
@@ -887,6 +1185,11 @@ async function crawlSite(base, { concurrency = 4, site = base } = {}) {
       redirectChains: fetched
         .filter((p) => (p.redirectChain || []).length > 1)
         .map((p) => ({ url: p.url, hops: p.redirectChain.length })),
+      // Pages carrying text that addresses an AI assistant. Candidates for a
+      // human to read, never a verdict — see the note on ASSISTANT_ADDRESSED.
+      assistantAddressed: fetched
+        .filter((p) => (p.assistantAddressed || []).length)
+        .map((p) => ({ url: p.finalUrl || p.url, snippets: p.assistantAddressed })),
     },
     pages,
   };
@@ -1459,15 +1762,30 @@ function guessSite(dir) {
 }
 
 function init(cfg, flags) {
-  const dir = process.cwd();
+  const cwd = process.cwd();
+  const guessed = guessSite(cwd);
+  const site = (flags.site && flags.site !== true ? String(flags.site).replace(/\/+$/, "") : guessed?.site) || null;
+
+  // A config in the working directory is right when the working directory is
+  // the project, and litter when it is not. No code here means the site is on
+  // a platform, so everything for it — config and snapshots — goes in one
+  // folder under ~/seo-audits/<host>/. `--here` forces the current directory.
+  const inProject = Boolean(flags.here) || looksLikeProject(cwd) || existsSync(join(cwd, CONFIG_NAME));
+  if (!inProject && !site) {
+    throw new Error(
+      `No project in ${cwd} and no site to name a folder after.\n` +
+      `Pass --site https://example.com (no code project is needed — a URL is enough), ` +
+      `or --here to write ${CONFIG_NAME} in this directory anyway.`,
+    );
+  }
+  const dir = inProject ? cwd : auditHomeFor(site);
   const target = join(dir, CONFIG_NAME);
-  const guessed = guessSite(dir);
-  const site = (flags.site && flags.site !== true ? String(flags.site) : guessed?.site) || null;
 
   if (existsSync(target) && !flags.force) {
     console.log(warn(`\n${target} already exists. Pass --force to overwrite it.\n`));
     return;
   }
+  mkdirSync(dir, { recursive: true });
 
   const out = {
     site,
@@ -1489,7 +1807,15 @@ function init(cfg, flags) {
   if (guessed && !flags.site) console.log(`  site       ${ok(site)} ${paint(`(read from ${guessed.from})`, C.dim)}`);
   else if (site) console.log(`  site       ${ok(site)}`);
   else console.log(`  site       ${bad("not found")} — set it by hand, or re-run with --site https://example.com`);
-  console.log(`  snapshots  ${out.snapshotDir}/`);
+  console.log(`  snapshots  ${join(dir, out.snapshotDir)}/`);
+  if (!inProject) {
+    console.log(paint(`
+  No code project here, which is the normal case: a Squarespace, Wix, Shopify
+  or hosted-WordPress site is audited over HTTP and there is nothing to check
+  out. Everything for this site lives in ${dir} and the
+  other commands find it from anywhere. Use --here to keep it in this folder
+  instead.`, C.dim));
+  }
   console.log(`
   Nothing above needs a credential. Next:
     node seo.mjs robots     which AI crawlers can read this site
@@ -1606,15 +1932,30 @@ async function canary(cfg, flags) {
   //    reported as an empty one.
   if (site) {
     try {
-      const urls = await fetchSitemapUrls(site);
-      add("sitemap", `${site}/sitemap.xml`, "at least one <loc>",
-        urls.length ? "PASS" : "FAIL",
-        urls.length ? `${urls.length} urls` : "reachable but contains no URLs — the crawl will measure nothing");
+      // The same discovery the crawl uses, or this control measures a path
+      // the crawl does not take. A PASS on a sitemap index — five child
+      // sitemaps counted as five pages — is the failure this rewrite exists
+      // to stop, so the detail names the file that was actually read.
+      const found = await discoverSitemap(site);
+      const root = found.roots[0];
+      const where = root
+        ? `${root.url} (${root.via}${root.index ? `, a sitemap index; ${found.children.length} child sitemap(s) read` : ""})`
+        : `nothing that parses as a sitemap — tried ${found.tried.map((t) => t.url).join(", ") || "nothing"}`;
+      const skipped = found.notFollowed.length
+        ? `; ${found.notFollowed.length} sitemap(s) NOT followed, so this list is incomplete — see sitemap.notFollowed`
+        : "";
+      add("sitemap", `discover a sitemap for ${site}`, "at least one page URL in a <urlset>",
+        found.urls.length ? "PASS" : "FAIL",
+        found.urls.length
+          ? `${found.urls.length} page urls from ${where}${skipped}`
+          : root
+            ? `read ${where} but it yielded no page URLs — the crawl will measure nothing${skipped}`
+            : where);
     } catch (err) {
-      add("sitemap", `${site}/sitemap.xml`, "at least one <loc>", "FAIL", String(err.message || err));
+      add("sitemap", `discover a sitemap for ${site}`, "at least one page URL in a <urlset>", "FAIL", String(err.message || err));
     }
   } else {
-    add("sitemap", "site sitemap", "at least one <loc>", "N/A", "no site configured");
+    add("sitemap", "site sitemap", "at least one page URL in a <urlset>", "N/A", "no site configured");
   }
 
   // 4. Search Console. The control is "can this identity see any property at
@@ -1707,7 +2048,9 @@ async function doctor(cfg) {
   if (!haveKeyFile(cfg)) {
     console.log(`             ${warn("missing — Search Console is locked")}\n`);
     console.log(paint("  Everything below is optional. The audit already works without it.", C.dim));
-    console.log(paint("  Connecting Search Console adds index state and 16 months of query history.\n", C.dim));
+    console.log(paint("  Connecting Search Console adds index state, Google's chosen canonical, and query", C.dim));
+    console.log(paint("  history — up to 16 months of it if this property is already verified. Verifying it", C.dim));
+    console.log(paint("  today starts the history at zero: Search Console does not backfill.\n", C.dim));
     console.log(paint("  About 10 minutes of clicking, once:", C.bold));
     console.log(`
   1. console.cloud.google.com → create a project (any name).
@@ -1800,7 +2143,11 @@ seo.mjs — freeze a site's search signals into a dated folder you can diff late
 
   --config <path>   use a specific ${CONFIG_NAME}
   --site <url>      override the configured site
+  --here            init: write ${CONFIG_NAME} in this directory, not ~/seo-audits/<host>/
   --out <path>      write machine-readable output (robots, canary, onpage)
+
+No code project is required. A URL is enough: "init --site <url>" from anywhere
+sets up a folder under ~/seo-audits/<host>/ and every command finds it.
 
 Examples
   node seo.mjs robots --site https://example.com

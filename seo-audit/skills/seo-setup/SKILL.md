@@ -35,11 +35,29 @@ shown the user something and named what is missing.
 
 | Source | What it unlocks | Cost |
 |---|---|---|
-| **Search Console** | Index state per URL, Google's chosen canonical, 16 months of query and click history, the legacy-404 list | ~10 min, free |
+| **Search Console** | Index state per URL, Google's chosen canonical, query and click history, the legacy-404 list | ~10 min, free |
 | **PageSpeed Insights key** | Removes the unauthenticated rate limit that otherwise leaves gaps in a capture | ~2 min, free |
 | **Bing Webmaster Tools** | Bing's index and traffic view | ~5 min, free |
 
 Search Console is the one worth the time. The other two are conveniences.
+
+🔴 **Search Console history is not retroactive, and you must say so before the
+user spends the ten minutes.** It collects from the moment the property is
+verified. **A property verified today holds nothing, and takes about two days
+before the first rows appear** — 16 months of history is what an *already
+verified* property gives you, not what verifying one gets you.
+
+Say it in one line, in advance:
+
+> *"If this property is already verified in your Google account, we get up to 16
+> months of query history. If we verify it today, we get index state and
+> canonicals right away, but the query history starts from zero and fills in
+> from here."*
+
+**The next audit must then read an empty query set as `N/A` — a new property —
+never as "no clicks."** This is `traps.md`'s own rule pointed at this skill: a
+source that has not collected yet and a site nobody searches for produce the
+same empty table, and only one of them is a finding.
 
 ## Run the walkthrough
 
@@ -119,5 +137,7 @@ A source that just gained a credential and still fails its canary is
 ## When you are done
 
 > *Search Console is live on 2 properties and answered its canary. Re-run
-> `/seo-audit` — index state and 16 months of query history are unlocked now,
-> and the next capture will carry them.*
+> `/seo-audit` — index state and Google's chosen canonicals are unlocked now,
+> and the next capture will carry them. Query history comes with whatever the
+> property has already collected: up to 16 months if it was verified long ago,
+> and starting from today if we verified it just now.*

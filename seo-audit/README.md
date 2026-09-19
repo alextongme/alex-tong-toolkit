@@ -9,8 +9,14 @@ before/after instead of a feeling.
 The first run needs no credentials, no account and no API key. It reports which
 AI crawlers are allowed in, crawls every URL in your sitemap, checks your entity
 graph, reconciles the sitemap against what is live, and captures the baseline.
-Connecting Search Console later adds index state and 16 months of query history —
-it is an upgrade, not a prerequisite.
+Connecting Search Console later adds index state, Google's chosen canonical per
+URL, and query history — it is an upgrade, not a prerequisite.
+
+**No code project required.** Squarespace, Wix, Shopify, hosted WordPress,
+anything: every check is an HTTP request to your public site, which is the same
+surface Google and the assistants get. If you have no repository to open, the
+config and your snapshots live in `~/seo-audits/<your-site>/` and every command
+finds them from anywhere.
 
 Questions and the changelog live in [The AI Kitchen](https://alextong.me/kitchen).
 
@@ -31,7 +37,8 @@ script has zero dependencies and never touches your lockfile.
 
 ## Use it
 
-Open Claude Code in the repo for your site, then:
+Open Claude Code anywhere — in your site's repo if it has one, or in any folder
+if it does not — then:
 
 | Command | What you get |
 |---|---|
@@ -46,7 +53,7 @@ Plain language works too — "audit my site's SEO", "can ChatGPT see my site?",
 The script can also be run directly, without Claude:
 
 ```bash
-node seo.mjs init                      # writes seo.config.json, guesses your site
+node seo.mjs init --site https://example.com    # or bare, inside your site's repo
 node seo.mjs robots --site https://example.com
 node seo.mjs canary
 node seo.mjs capture --label baseline
@@ -73,7 +80,9 @@ Then an instrument check, which runs before any result is believed:
 
 ```
   PASS  crawler          parse https://example.com/
-  PASS  sitemap          https://yoursite.com/sitemap.xml
+  PASS  sitemap          discover a sitemap for https://yoursite.com
+        27 page urls from https://yoursite.com/sitemap_index.xml
+        (robots.txt Sitemap:, a sitemap index; 3 child sitemap(s) read)
   n/a   search-console   not connected
   UNKN  bing             0 rows
 ```
@@ -115,7 +124,7 @@ credentials:
 
 | Host | When | Why |
 |---|---|---|
-| **Your site** (from `seo.config.json`) | `robots`, `onpage`, `capture` | `robots.txt`, `sitemap.xml`, and one GET per sitemap URL |
+| **Your site** (from `seo.config.json`) | `robots`, `onpage`, `capture` | `robots.txt`, the sitemap it declares (or `/sitemap.xml`, `/sitemap_index.xml`, `/wp-sitemap.xml`), any child sitemaps, and one GET per page URL |
 | `www.googleapis.com` | `capture`, `canary` | PageSpeed Insights. Works unauthenticated; your own API key removes the rate limit |
 | `oauth2.googleapis.com` | `capture`, `doctor` | Exchanges your Search Console service-account key for an access token |
 | `searchconsole.googleapis.com` | `capture`, `doctor` | URL Inspection, read-only |
@@ -127,7 +136,7 @@ Search Console and Bing are skipped entirely when you have not configured them.
 
 ## Where your data goes
 
-Nowhere. Snapshots are written to `seo-snapshots/` in your project, `chmod 600`,
+Nowhere. Snapshots are written to `seo-snapshots/` beside your config, `chmod 600`,
 because a snapshot contains your Search Console query data — that is your
 private data even though your site is public. Add `seo-snapshots/` to
 `.gitignore` if you would rather not commit it.
@@ -141,10 +150,16 @@ key**, because a key that exists and a key that works are different facts.
 
 Two things that catch people, and neither error message says so:
 
-- Use a **service account**, not the OAuth desktop flow. Desktop tokens die in
-  about a week and the next capture fails quietly.
+- Use a **service account**, not the OAuth desktop flow. A project whose OAuth
+  consent screen is still in "Testing" is issued a refresh token that expires in
+  7 days, and the next capture fails quietly. A service account has no consent
+  screen and cannot hit that rule.
 - Search Console permission must be **Owner**, not Full. URL Inspection refuses
   anything less.
+- **Search Console is not retroactive.** It starts collecting the day the
+  property is verified. Up to 16 months of query history is what an
+  *already verified* property gives you; verifying one today starts at zero and
+  takes about two days to show its first rows.
 
 ## Troubleshooting
 
@@ -163,7 +178,9 @@ Two things that catch people, and neither error message says so:
 
 ## Versions
 
-- **1.0.0** — First release. Per-URL regression rules in `compare`, an
+- **1.0.0** — First release. Sitemap discovery that reads the `Sitemap:` line
+  out of `robots.txt`, falls back to the common CMS paths, and follows a
+  sitemap index instead of reporting its child sitemaps as pages. Per-URL regression rules in `compare`, an
   inbound-link graph behind the orphan check, four-valued fetch classing so a
   bot challenge cannot read as a broken page, response-header checks including
   `X-Robots-Tag`, and a URL guard on every request. `init`, `robots`, `canary`, `onpage`, `capture`,

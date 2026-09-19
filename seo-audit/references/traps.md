@@ -100,6 +100,36 @@ each other is how a "~4,500/mo cluster" turns out to be ~3,620/mo once overlap i
 counted. Word similarity is a hypothesis; a shared ranking URL is evidence that
 Google treats the two queries as one job.
 
+## A sitemap index is not a list of pages, and the crawl cannot tell
+
+`<loc>` means two different things depending on the file it is in. In a
+`<urlset>` it is a page. In a `<sitemapindex>` it is **another sitemap**. A
+crawler that reads `<loc>` without looking at the wrapper fetches five XML
+files, files them as pages with no title, no H1 and no schema, and reports a
+confident `PASS — 5 urls` on the way in.
+
+Checked live on 2026-09-19: **Shopify** (allbirds.com), **Jetpack** (ma.tt) and
+**WordPress core** (make.wordpress.org) all serve an index at the path a naive
+crawler reads as pages. Jetpack nests a second index inside the first, so one
+level of recursion reads 9 URLs of a site with thousands.
+
+Two more things that surprise, from the same pass:
+
+- **`/sitemap.xml` is often not the sitemap.** WordPress core serves
+  `/wp-sitemap.xml`; Yoast, the most-installed SEO plugin on that CMS, serves
+  `/sitemap_index.xml` and declares it in `robots.txt`. **Read the `Sitemap:`
+  line** — that is where a site says where its real list is, and `robots.txt`
+  is already being fetched.
+- **The status code lies in both directions.** `make.wordpress.org` serves a
+  valid sitemap index under HTTP **404**, and a WordPress 404 page is valid
+  HTML at every path you guess. The body is the only reliable test.
+
+`seo.mjs` therefore reads the declared `Sitemap:` lines first, falls back to a
+short path list, follows two levels of index, and records everything it did not
+follow in `sitemap.notFollowed`. **A non-empty `notFollowed` means the page
+list is incomplete, and coverage cannot see that** — the crawl can fetch 100%
+of the wrong list. Report it.
+
 ## Crawl bot names do not map to the claims people make about them
 
 `GPTBot` is training. `OAI-SearchBot` is the search index. `ChatGPT-User` is a
@@ -123,6 +153,24 @@ pages that already get crawled, and — for Bing and Yandex only — IndexNow,
 which needs no account. **Submitting asks for a crawl; it never promises an
 index.** Where a platform's own UI is the only route, that is a numbered
 click-path for the owner, never a browser session.
+
+## A spoofed crawler name measures the impersonator, not the crawler
+
+`seo.mjs robots` sends a request carrying `GPTBot` / `ClaudeBot` /
+`PerplexityBot` as its User-Agent, from the auditor's laptop. That address is
+not on any of those operators' published lists, which is exactly the pattern
+bot management challenges. **So a 403 means the site blocks GPTBot, or it means
+the site blocks things pretending to be GPTBot, and this probe cannot tell them
+apart** — the real crawler may be walking straight in.
+
+A 200 is an `allowed`: the edge served it, so it is not blanket-refusing that
+name. Anything else is **UNKNOWN**, reported as what was sent and what came
+back, and it never produces a blocked verdict on its own. Only `robots.txt`
+does that.
+
+There is no canary for this one, and that is the honest answer rather than a
+gap: no known-answer query can make a spoofed User-Agent a valid instrument.
+The fix is the wording and the state, not another control.
 
 ## A discovery endpoint that looks read-only can return secrets
 
