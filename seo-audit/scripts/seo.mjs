@@ -1,0 +1,1866 @@
+#!/usr/bin/env node
+// seo.mjs — freeze every measurable search signal for one site into one dated
+// folder, so the same command run weeks later produces a directly comparable
+// folder and the difference between the two is a fact rather than a feeling.
+//
+// Nothing here phones home. Every request goes to the site named in your own
+// config, or to an API you configured with your own credentials. The outbound
+// hosts are listed in the plugin README.
+//
+// Commands, in the order they are usually needed
+//   init      write a seo.config.json for this project, by asking the filesystem first
+//   robots    which AI crawlers can read this site — no credentials, runs anywhere
+//   canary    ask every configured source a question whose answer is already known
+//   onpage    crawl every sitemap URL once and write the result to a file
+//   capture   a full dated snapshot: on-page always, plus whatever is unlocked
+//   compare   diff two snapshots
+//   list      what has been captured so far
+//   doctor    are the credentials present AND alive
+//
+// Usage
+//   node seo.mjs robots --site https://example.com
+//   node seo.mjs canary
+//   node seo.mjs capture --label baseline
+//   node seo.mjs capture --label t1 --until 2026-10-17
+//   node seo.mjs onpage --base http://localhost:3311 --out before.json
+//   node seo.mjs compare baseline t1
+//
+// Configuration
+//   Every command reads ./seo.config.json (or --config <path>). Flags win over
+//   the config file. `robots` and `onpage` need nothing but a URL, so the first
+//   useful run needs no config and no credentials at all.
+//
+// Credentials, all optional, all the user's own
+//   Search Console  a Google service-account JSON key, path in the config or
+//                   in GSC_SA_KEY_FILE. Read-only scope. Never printed.
+//   PSI_API_KEY     PageSpeed Insights, read from the macOS keychain (or env).
+//   BING_WMT_API_KEY  Bing Webmaster Tools, same.
+//   A value is never echoed: `doctor` reports only whether a key was found and
+//   whether it still works.
+
+import { execFileSync } from "node:child_process";
+import { createSign } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+import {
+  chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync,
+} from "node:fs";
+import { homedir, userInfo } from "node:os";
+import { dirname, isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+// ------------------------------------------------------------------- config
+//
+// Everything this script knows about a site comes from one file. There is no
+// site baked into the code: a hard-coded domain is the difference between a
+// tool and one person's script.
+
+const CONFIG_NAME = "seo.config.json";
+
+const DEFAULT_CONFIG = {
+  site: null,
+  searchConsole: { properties: [], keyFile: null },
+  snapshotDir: "seo-snapshots",
+  psi: { urls: [] },
+  bing: { enabled: true },
+  changeBoundary: null,
+};
+
+// `~` is expanded here rather than left to the shell, because these paths
+// arrive from a JSON file where no shell ever sees them.
+function expandHome(p) {
+  if (!p) return p;
+  return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
+}
+
+function findConfigPath(explicit) {
+  if (explicit && explicit !== true) return expandHome(explicit);
+  // Walk up from the working directory so the script works from a subfolder.
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i++) {
+    const candidate = join(dir, CONFIG_NAME);
+    if (existsSync(candidate)) return candidate;
+    const up = dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  return null;
+}
+
+function loadConfig(flags = {}) {
+  const path = findConfigPath(flags.config);
+  let raw = {};
+  if (path) {
+    try {
+      raw = JSON.parse(readFileSync(path, "utf8"));
+    } catch (err) {
+      throw new Error(`${path} is not valid JSON: ${err.message}`);
+    }
+  }
+  const cfg = {
+    ...DEFAULT_CONFIG,
+    ...raw,
+    searchConsole: { ...DEFAULT_CONFIG.searchConsole, ...(raw.searchConsole || {}) },
+    psi: { ...DEFAULT_CONFIG.psi, ...(raw.psi || {}) },
+    bing: { ...DEFAULT_CONFIG.bing, ...(raw.bing || {}) },
+    _path: path,
+    _dir: path ? dirname(path) : process.cwd(),
+  };
+
+  // A flag always wins over the file, so one config can serve a local build,
+  // a staging host and production without being edited.
+  if (flags.site && flags.site !== true) cfg.site = String(flags.site);
+  if (cfg.site) cfg.site = cfg.site.replace(/\/+$/, "");
+
+  cfg.keyFile = expandHome(
+    process.env.GSC_SA_KEY_FILE ||
+    cfg.searchConsole.keyFile ||
+    join(homedir(), ".config", "seo-audit", "gsc-service-account.json"),
+  );
+  cfg.properties = cfg.searchConsole.properties || [];
+  cfg.snapRoot = expandHome(
+    flags.snapshots && flags.snapshots !== true ? flags.snapshots
+      : isAbsolute(cfg.snapshotDir) ? cfg.snapshotDir
+      : join(cfg._dir, cfg.snapshotDir),
+  );
+  return cfg;
+}
+
+function requireSite(cfg) {
+  if (cfg.site) return cfg.site;
+  throw new Error(
+    `No site. Pass --site https://example.com, or run \`node seo.mjs init\` to write a ${CONFIG_NAME}.`,
+  );
+}
+
+const C = {
+  reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m",
+  green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m", cyan: "\x1b[36m",
+};
+const paint = (s, c) => `${c}${s}${C.reset}`;
+const ok = (s) => paint(s, C.green);
+const warn = (s) => paint(s, C.yellow);
+const bad = (s) => paint(s, C.red);
+
+// ---------------------------------------------------------------- utilities
+
+function parseFlags(argv) {
+  const out = { _: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith("--")) {
+      const key = a.slice(2);
+      const next = argv[i + 1];
+      if (next && !next.startsWith("--")) { out[key] = next; i++; }
+      else out[key] = true;
+    } else out._.push(a);
+  }
+  return out;
+}
+
+const iso = (d) => d.toISOString().slice(0, 10);
+function daysAgo(n, from) {
+  const d = from ? new Date(`${from}T12:00:00Z`) : new Date();
+  d.setUTCDate(d.getUTCDate() - n);
+  return iso(d);
+}
+
+// A snapshot holds a site's Search Console queries, which are that owner's
+// private data even though the site is public. Written 0600, never world-readable.
+function writeJSON(path, value) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(value, null, 2) + "\n");
+  try { chmodSync(path, 0o600); } catch { /* best effort; a failed chmod is not a failed capture */ }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// API keys live in the macOS keychain, never in a file, and never on a command
+// line where they would land in shell history. The value is returned to the
+// caller and never logged; `doctor` only ever reports whether it is set.
+const secretCache = new Map();
+function secret(name) {
+  if (process.env[name]) return process.env[name];
+  if (secretCache.has(name)) return secretCache.get(name);
+  let value = null;
+  try {
+    value = execFileSync(
+      "security",
+      ["find-generic-password", "-a", userInfo().username, "-s", name, "-w"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim() || null;
+  } catch {
+    value = null; // not in the keychain; the caller decides whether that matters
+  }
+  secretCache.set(name, value);
+  return value;
+}
+
+// ------------------------------------------------------------- url safety
+//
+// The crawler follows a sitemap, and a sitemap is a list of URLs somebody else
+// wrote. Auditing your own site, that is your own list; auditing a client's, it
+// is not. An unchecked crawler pointed at `http://169.254.169.254/` or at a
+// service on localhost will fetch it and put what came back in a report.
+//
+// This is the small version of the guard on purpose. It refuses non-HTTP
+// schemes and any host that resolves to a non-public address, and it re-checks
+// after every redirect, because a public hostname may redirect to a private
+// one. It does not pin DNS: that defends against a name resolving differently
+// between the check and the connection, which is a real attack on a hosted
+// service and not a meaningful one for a tool running on the auditor's laptop.
+
+const BLOCKED_HOSTNAMES = new Set([
+  "localhost", "metadata", "metadata.google.internal",
+  "instance-data", "169.254.169.254", "[::1]", "::1",
+]);
+
+function isPublicAddress(ip) {
+  const v = isIP(ip);
+  if (v === 4) {
+    const [a, b] = ip.split(".").map(Number);
+    if (a === 0 || a === 10 || a === 127) return false;          // this network, private, loopback
+    if (a === 169 && b === 254) return false;                     // link-local, incl. cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return false;            // private
+    if (a === 192 && b === 168) return false;                     // private
+    if (a === 100 && b >= 64 && b <= 127) return false;           // carrier-grade NAT
+    if (a === 192 && b === 0) return false;                       // IETF protocol assignments
+    if (a >= 224) return false;                                   // multicast and reserved
+    return true;
+  }
+  if (v === 6) {
+    const ip6 = ip.toLowerCase().replace(/^\[|\]$/g, "");
+    if (ip6 === "::" || ip6 === "::1") return false;
+    if (ip6.startsWith("fe8") || ip6.startsWith("fe9") ||
+        ip6.startsWith("fea") || ip6.startsWith("feb")) return false; // link-local
+    if (ip6.startsWith("fc") || ip6.startsWith("fd")) return false;   // unique local
+    if (ip6.startsWith("ff")) return false;                           // multicast
+    if (ip6.startsWith("::ffff:")) return isPublicAddress(ip6.slice(7)); // v4-mapped
+    return true;
+  }
+  return false;
+}
+
+// One verdict per hostname per run. Without this the check costs a DNS lookup
+// on every URL in a sitemap, which on a large site is the slowest thing here.
+const hostVerdicts = new Map();
+
+// Throws rather than returning false: a URL that cannot be shown to be safe is
+// never fetched, and the reason reaches the report instead of a silent skip.
+async function assertPublicUrl(url) {
+  let u;
+  try { u = new URL(url); } catch { throw new Error(`not a URL: ${url}`); }
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw new Error(`refusing ${u.protocol} URL: ${url}`);
+  }
+  const host = u.hostname.toLowerCase();
+  if (BLOCKED_HOSTNAMES.has(host) || host.endsWith(".localhost")) {
+    throw new Error(`refusing blocked host: ${host}`);
+  }
+  if (isIP(host)) {
+    if (!isPublicAddress(host)) throw new Error(`refusing non-public address: ${host}`);
+    return u;
+  }
+  if (hostVerdicts.has(host)) {
+    const verdict = hostVerdicts.get(host);
+    if (verdict) throw new Error(verdict);
+    return u;
+  }
+  let addrs;
+  try {
+    addrs = await lookup(host, { all: true });
+  } catch (err) {
+    // A name that does not resolve is a dead URL, not an unsafe one. It is
+    // left to the fetch so the page is reported as an error with the real
+    // reason rather than as a refusal.
+    hostVerdicts.set(host, null);
+    return u;
+  }
+  // Every A/AAAA record has to pass. One private answer among public ones is
+  // still a private answer the connection might use.
+  for (const a of addrs) {
+    if (!isPublicAddress(a.address)) {
+      const why = `refusing ${host}: resolves to non-public ${a.address}`;
+      hostVerdicts.set(host, why);
+      throw new Error(why);
+    }
+  }
+  hostVerdicts.set(host, null);
+  return u;
+}
+
+// How a fetch resolved, as four values rather than ok/failed. A bot challenge
+// and a dead page are opposite findings — one says the site has a broken page,
+// the other says the site's own edge is turning crawlers away, which is the
+// same thing the AI-crawler check looks for — and a single `failed` count
+// cannot tell them apart.
+const FETCH_CLASSES = ["ok", "blocked", "rate_limited", "error"];
+
+function classifyResponse(res, body = "") {
+  if (res.status === 429) return "rate_limited";
+  if (res.status === 401 || res.status === 403) return "blocked";
+  if (res.status === 503 && /cloudflare|just a moment|attention required|checking your browser/i.test(body)) {
+    return "blocked";
+  }
+  return "ok";
+}
+
+const MAX_REDIRECTS = 5;
+
+// Redirects are followed by hand so every hop can be re-validated, and so the
+// chain itself is recorded: `redirect: "follow"` hides both.
+async function fetchPageSafely(url, options = {}) {
+  const chain = [];
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    // Each hop goes through fetchWithRetry, so each hop is re-validated: a
+    // public hostname is allowed to redirect to a private one, and that is
+    // the case a single up-front check misses.
+    const res = await fetchWithRetry(current, { ...options, redirect: "manual" });
+    if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
+      const next = new URL(res.headers.get("location"), current).toString();
+      chain.push({ from: current, status: res.status, to: next });
+      current = next;
+      continue;
+    }
+    return { res, finalUrl: current, chain };
+  }
+  throw new Error(`more than ${MAX_REDIRECTS} redirects from ${url}`);
+}
+
+async function fetchWithRetry(url, options = {}, tries = 3) {
+  // Every outbound request in this script passes through here — sitemap,
+  // robots.txt, crawler probes, pages, and the configured APIs — so this is
+  // where the URL guard belongs. It sat in `crawlPage` first, which left the
+  // sitemap fetch, the very first request a crawl makes, unchecked.
+  await assertPublicUrl(url);
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetch(url, { ...options, signal: AbortSignal.timeout(60_000) });
+      if (res.status === 429 || res.status >= 500) {
+        lastErr = new Error(`HTTP ${res.status}`);
+        await sleep(3000 * 2 ** i); // 3s, 6s, 12s, 24s, 48s
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastErr = err;
+      await sleep(1500 * (i + 1));
+    }
+  }
+  throw lastErr;
+}
+
+// ------------------------------------------------- google service account auth
+
+let cachedToken = null;
+
+function haveKeyFile(cfg) {
+  return Boolean(cfg.keyFile) && existsSync(cfg.keyFile);
+}
+
+async function getAccessToken(cfg) {
+  if (cachedToken && cachedToken.exp > Date.now() / 1000 + 60) return cachedToken.token;
+  if (!haveKeyFile(cfg)) {
+    throw new Error(`No Search Console key at ${cfg.keyFile}. Run: node seo.mjs doctor`);
+  }
+  const key = JSON.parse(readFileSync(cfg.keyFile, "utf8"));
+  if (!key.client_email || !key.private_key) {
+    throw new Error(`${cfg.keyFile} is not a service-account key (no client_email/private_key).`);
+  }
+  const iat = Math.floor(Date.now() / 1000);
+  const exp = iat + 3600;
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const head = b64({ alg: "RS256", typ: "JWT" });
+  const claim = b64({
+    iss: key.client_email,
+    scope: "https://www.googleapis.com/auth/webmasters.readonly",
+    aud: "https://oauth2.googleapis.com/token",
+    exp, iat,
+  });
+  const signer = createSign("RSA-SHA256");
+  signer.update(`${head}.${claim}`);
+  const sig = signer.sign(key.private_key).toString("base64url");
+
+  const res = await fetchWithRetry("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: `${head}.${claim}.${sig}`,
+    }),
+  });
+  const body = await res.json();
+  if (!res.ok) {
+    // body.error_description can name the exact misconfiguration; it carries no secret.
+    throw new Error(`Token request failed (${res.status}): ${body.error_description || body.error}`);
+  }
+  cachedToken = { token: body.access_token, exp };
+  return body.access_token;
+}
+
+async function gscFetch(cfg, url, init = {}) {
+  const token = await getAccessToken(cfg);
+  const res = await fetchWithRetry(url, {
+    ...init,
+    headers: {
+      ...(init.headers || {}),
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = body?.error?.message || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+  return body;
+}
+
+async function listProperties(cfg) {
+  const body = await gscFetch(cfg, "https://www.googleapis.com/webmasters/v3/sites");
+  return body.siteEntry || [];
+}
+
+async function searchAnalytics(cfg, property, { startDate, endDate, dimensions, rowLimit = 1000 }) {
+  const url =
+    `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(property)}` +
+    `/searchAnalytics/query`;
+  const rows = [];
+  let startRow = 0;
+  // GSC caps a single response at 25k rows; page until it stops filling.
+  for (;;) {
+    const body = await gscFetch(cfg, url, {
+      method: "POST",
+      body: JSON.stringify({
+        startDate, endDate, dimensions, rowLimit, startRow,
+        type: "web",
+        dataState: "all", // include the fresh, still-settling days and flag them
+      }),
+    });
+    const got = body.rows || [];
+    rows.push(...got);
+    if (got.length < rowLimit) break;
+    startRow += rowLimit;
+    if (startRow >= 25_000) break;
+  }
+  return rows;
+}
+
+async function inspectUrl(cfg, property, inspectionUrl) {
+  const body = await gscFetch(
+    cfg,
+    "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect",
+    {
+      method: "POST",
+      body: JSON.stringify({ inspectionUrl, siteUrl: property, languageCode: "en-US" }),
+    },
+  );
+  return body.inspectionResult || {};
+}
+
+// ------------------------------------------------------------- on-page crawl
+
+function stripTags(html) {
+  return decodeEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+      .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+      .replace(/<[^>]+>/g, " "),
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Meta text arrives HTML-escaped (&#x27;, &amp;). Google decodes it before
+// showing it, so the snapshot must too — otherwise an unchanged description
+// that merely gained an apostrophe reads as a diff.
+const ENTITIES = {
+  "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"',
+  "&apos;": "'", "&nbsp;": " ", "&mdash;": "—", "&ndash;": "–",
+};
+function decodeEntities(s) {
+  if (!s) return s;
+  return s
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&[a-z]+;/gi, (e) => ENTITIES[e.toLowerCase()] ?? e);
+}
+
+function attr(tag, name) {
+  const m = tag.match(new RegExp(`${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, "i"));
+  return m ? decodeEntities((m[2] ?? m[3] ?? "").trim()) : null;
+}
+
+function metaContent(html, key, keyAttr = "name") {
+  const re = new RegExp(`<meta[^>]*${keyAttr}\\s*=\\s*["']${key}["'][^>]*>`, "i");
+  const m = html.match(re);
+  return m ? attr(m[0], "content") : null;
+}
+
+function jsonLdBlocks(html) {
+  const out = [];
+  const re = /<script[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    try {
+      const parsed = JSON.parse(m[1].trim());
+      const items = Array.isArray(parsed) ? parsed : parsed["@graph"] || [parsed];
+      for (const item of items) out.push(item);
+    } catch {
+      out.push({ "@type": "__unparseable__" });
+    }
+  }
+  return out;
+}
+
+// One spelling per page, so the inbound-link graph does not treat `/about`,
+// `/about/` and `/about#team` as three different pages.
+function normalizeLink(href, from) {
+  try {
+    const u = new URL(href, from);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    u.hash = "";
+    u.search = "";
+    u.hostname = u.hostname.toLowerCase();
+    let out = u.toString();
+    if (out.endsWith("/") && u.pathname !== "/") out = out.slice(0, -1);
+    return out;
+  } catch { return null; }
+}
+
+async function crawlPage(url, base, site = base) {
+  const started = Date.now();
+  let res, finalUrl, chain;
+  try {
+    ({ res, finalUrl, chain } = await fetchPageSafely(url, {
+      headers: { "user-agent": "seo-audit-snapshot/1 (+https://github.com/alextongme/alex-tong-toolkit)" },
+    }));
+  } catch (err) {
+    // A refusal by the URL guard is a finding about the sitemap, not a network
+    // blip, so it is reported with the reason rather than as a bare failure.
+    return { url, error: String(err.message || err), fetchClass: "error" };
+  }
+  const ms = Date.now() - started;
+  const html = await res.text();
+  const fetchClass = classifyResponse(res, html.slice(0, 2000));
+
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const title = titleMatch ? stripTags(titleMatch[1]) : null;
+  const canonicalTag = html.match(/<link[^>]*rel\s*=\s*["']canonical["'][^>]*>/i);
+  const h1s = [...html.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi)].map((m) => stripTags(m[1]));
+  const h2s = [...html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi)].map((m) => stripTags(m[1]));
+
+  const imgs = [...html.matchAll(/<img\b[^>]*>/gi)].map((m) => m[0]);
+  const imgsNoAlt = imgs.filter((t) => attr(t, "alt") === null).length;
+
+  const hrefs = [...html.matchAll(/<a\b[^>]*href\s*=\s*("([^"]*)"|'([^']*)')/gi)]
+    .map((m) => (m[2] ?? m[3] ?? "").trim())
+    .filter((h) => h && !h.startsWith("#") && !h.startsWith("mailto:") && !h.startsWith("tel:"));
+  const internal = hrefs.filter((h) => h.startsWith("/") || h.startsWith(base) || h.startsWith(site));
+  // Kept, not just counted: the inbound-link graph is built from these, and it
+  // is what answers "is this page linked from a real page" — the doorway check.
+  const internalTargets = [...new Set(internal.map((h) => normalizeLink(h, res.url || url)).filter(Boolean))];
+  const external = hrefs.filter((h) => /^https?:\/\//i.test(h) && !h.startsWith(base) && !h.startsWith(site));
+  const externalHosts = [...new Set(external.map((h) => { try { return new URL(h).host; } catch { return "?"; } }))].sort();
+
+  const ld = jsonLdBlocks(html);
+  const text = stripTags(html);
+
+  return {
+    url,
+    finalUrl,
+    status: res.status,
+    redirected: finalUrl !== url,
+    // The chain, not just the fact of one. Two hops to reach a sitemap URL is
+    // a finding; `redirected: true` is not.
+    redirectChain: chain,
+    fetchClass,
+    responseMs: ms,
+    bytes: Buffer.byteLength(html),
+    lang: (html.match(/<html[^>]*>/i)?.[0] && attr(html.match(/<html[^>]*>/i)[0], "lang")) || null,
+    title,
+    titleLength: title ? title.length : 0,
+    description: metaContent(html, "description"),
+    descriptionLength: (metaContent(html, "description") || "").length,
+    robots: metaContent(html, "robots"),
+    // The header form of the same directive. A page can be meta-indexable and
+    // header-noindexed at once, and the header wins — it was unreachable until
+    // this crawler started reading response headers at all.
+    xRobotsTag: res.headers.get("x-robots-tag"),
+    contentType: res.headers.get("content-type"),
+    canonical: canonicalTag ? attr(canonicalTag[0], "href") : null,
+    og: {
+      title: metaContent(html, "og:title", "property"),
+      description: metaContent(html, "og:description", "property"),
+      image: metaContent(html, "og:image", "property"),
+      type: metaContent(html, "og:type", "property"),
+      url: metaContent(html, "og:url", "property"),
+    },
+    twitterCard: metaContent(html, "twitter:card"),
+    h1: h1s,
+    h1Count: h1s.length,
+    h2Count: h2s.length,
+    wordCount: text ? text.split(/\s+/).length : 0,
+    images: imgs.length,
+    imagesMissingAlt: imgsNoAlt,
+    internalLinks: internal.length,
+    internalTargets,
+    externalLinks: external.length,
+    externalHosts,
+    jsonLdTypes: ld.map((x) => x["@type"]).flat().filter(Boolean),
+    // sameAs is the entity graph; it is the single most load-bearing field in
+    // the "is this the right Alex Tong" question, so it is captured verbatim.
+    sameAs: ld.flatMap((x) => (Array.isArray(x.sameAs) ? x.sameAs : x.sameAs ? [x.sameAs] : [])).sort(),
+  };
+}
+
+// ------------------------------------------------------------- ai crawlers
+
+// The bots that decide whether an assistant can quote this site at all. Split
+// by operator so a report can say *who* is blocked, not just "something is".
+const AI_CRAWLERS = [
+  { name: "GPTBot", operator: "OpenAI", purpose: "training" },
+  { name: "OAI-SearchBot", operator: "OpenAI", purpose: "search index" },
+  { name: "ChatGPT-User", operator: "OpenAI", purpose: "live fetch on a user's behalf" },
+  { name: "ClaudeBot", operator: "Anthropic", purpose: "training" },
+  { name: "Claude-User", operator: "Anthropic", purpose: "live fetch on a user's behalf" },
+  { name: "Claude-SearchBot", operator: "Anthropic", purpose: "search index" },
+  { name: "PerplexityBot", operator: "Perplexity", purpose: "search index" },
+  { name: "Perplexity-User", operator: "Perplexity", purpose: "live fetch on a user's behalf" },
+  { name: "Google-Extended", operator: "Google", purpose: "Gemini / AI Overviews training" },
+  { name: "Applebot-Extended", operator: "Apple", purpose: "training" },
+  { name: "CCBot", operator: "Common Crawl", purpose: "corpus many models train on" },
+];
+
+// robots.txt groups: one or more consecutive User-agent lines, then the rules
+// that apply to all of them. A blank line ends the group. Comments and unknown
+// directives (Crawl-delay, Sitemap, Host) are ignored rather than dropped into
+// the rule list, because only Allow/Disallow decide access.
+function parseRobots(text) {
+  const groups = [];
+  let current = null;
+  let sawRule = false;
+
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/#.*$/, "").trim();
+    if (!line) { current = null; sawRule = false; continue; }
+    const m = line.match(/^([A-Za-z-]+)\s*:\s*(.*)$/);
+    if (!m) continue;
+    const field = m[1].toLowerCase();
+    const value = m[2].trim();
+
+    if (field === "user-agent") {
+      // Consecutive agents share one group; an agent after a rule starts a new one.
+      if (!current || sawRule) { current = { agents: [], rules: [] }; groups.push(current); sawRule = false; }
+      current.agents.push(value.toLowerCase());
+    } else if (field === "allow" || field === "disallow") {
+      if (!current) continue; // a rule with no preceding User-agent binds to nothing
+      current.rules.push({ type: field, path: value });
+      sawRule = true;
+    }
+  }
+  return groups;
+}
+
+// Most-specific-group-wins: a bot obeys its own group if it has one and ignores
+// `*` entirely. That distinction matters in a report — an explicit block is a
+// decision somebody made, a `*` block is usually collateral.
+function robotsVerdict(groups, botName) {
+  const bot = botName.toLowerCase();
+  const own = groups.find((g) => g.agents.includes(bot));
+  const wild = groups.find((g) => g.agents.includes("*"));
+  const group = own || wild;
+  if (!group) return { state: "allowed", via: "no matching group" };
+
+  const via = own ? `User-agent: ${botName}` : "User-agent: *";
+  const disallows = group.rules.filter((r) => r.type === "disallow" && r.path !== "");
+  const allows = group.rules.filter((r) => r.type === "allow");
+  if (!disallows.length) return { state: "allowed", via };
+  if (disallows.some((r) => r.path === "/")) {
+    // An Allow alongside a root Disallow carves out a subtree; the site is not
+    // fully closed, and calling it "blocked" would overstate it.
+    return { state: allows.length ? "partial" : "blocked", via };
+  }
+  return { state: "partial", via, paths: disallows.map((r) => r.path) };
+}
+
+// robots.txt states an intention. The edge decides. Cloudflare's managed AI-bot
+// blocking (now on by default for new zones) never appears in robots.txt, so a
+// clean file and an open site are different facts — the same presence-vs-liveness
+// trap that let a dead Bing key report as healthy. One live probe per operator,
+// which is cheap and is the only half of this check that measures the world.
+async function probeAiCrawler(base, botName) {
+  const ua = `Mozilla/5.0 (compatible; ${botName}/1.0; +https://example.com/bot)`;
+  try {
+    const res = await fetch(base, { headers: { "user-agent": ua }, redirect: "follow" });
+    return { bot: botName, status: res.status, blocked: res.status === 401 || res.status === 403 || res.status === 429 };
+  } catch (err) {
+    return { bot: botName, error: String(err.message || err) };
+  }
+}
+
+async function checkAiCrawlers(base, robotsText, robotsStatus) {
+  // An unreachable robots.txt is not an open door. Report it as unknown, never
+  // as allowed — a silently broken fetch and a permissive site look identical
+  // from inside a single request.
+  if (robotsText == null) {
+    return {
+      robotsTxt: robotsStatus ? `unreadable (HTTP ${robotsStatus})` : "unreachable",
+      verdict: "unknown",
+      note: "robots.txt could not be read; crawler access is undetermined, not open",
+      bots: {},
+      probes: [],
+    };
+  }
+
+  const groups = parseRobots(robotsText);
+  const bots = {};
+  for (const c of AI_CRAWLERS) {
+    bots[c.name] = { ...robotsVerdict(groups, c.name), operator: c.operator, purpose: c.purpose };
+  }
+
+  const probes = [];
+  for (const name of ["GPTBot", "ClaudeBot", "PerplexityBot"]) {
+    probes.push(await probeAiCrawler(base, name));
+  }
+
+  const blocked = Object.entries(bots).filter(([, v]) => v.state === "blocked").map(([k]) => k);
+  const probeBlocked = probes.filter((p) => p.blocked).map((p) => p.bot);
+  return {
+    robotsTxt: "read",
+    verdict: blocked.length || probeBlocked.length ? "blocked" : "allowed",
+    blocked,
+    probeBlocked,
+    bots,
+    probes,
+  };
+}
+
+function reportAiCrawlers(ai) {
+  if (!ai) return;
+  console.log(paint("\nAI crawlers", C.cyan));
+  if (ai.verdict === "unknown") {
+    console.log(`  ${warn("unknown")} — ${ai.note}`);
+    return;
+  }
+  const label = { blocked: bad("blocked"), partial: warn("partial"), allowed: ok("allowed") };
+  for (const [name, v] of Object.entries(ai.bots)) {
+    const paths = v.paths ? paint(`  ${v.paths.join(" ")}`, C.dim) : "";
+    console.log(`  ${name.padEnd(20)} ${label[v.state]}${paths}  ${paint(`(${v.operator} — ${v.purpose}; via ${v.via})`, C.dim)}`);
+  }
+  for (const pr of ai.probes) {
+    const verdict = pr.error ? warn(`probe failed: ${pr.error}`)
+      : pr.blocked ? bad(`edge returned ${pr.status}`)
+      : ok(`edge returned ${pr.status}`);
+    console.log(`  ${paint("live probe", C.dim)} ${pr.bot.padEnd(14)} ${verdict}`);
+  }
+  if (ai.verdict === "blocked") {
+    console.log(bad(`  → ${[...ai.blocked, ...ai.probeBlocked].join(", ")} cannot read this site.`));
+  }
+}
+
+async function fetchSitemapUrls(base) {
+  const res = await fetchWithRetry(`${base}/sitemap.xml`);
+  const xml = await res.text();
+  return [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1].trim());
+}
+
+async function crawlSite(base, { concurrency = 4, site = base } = {}) {
+  const sitemapUrls = await fetchSitemapUrls(base);
+  // A snapshot taken against a local build must compare like-for-like with the
+  // production one, so rewrite sitemap hosts onto whatever base we were given.
+  const urls = sitemapUrls.map((u) => (base === site ? u : u.replace(site, base)));
+
+  const pages = [];
+  for (let i = 0; i < urls.length; i += concurrency) {
+    const batch = urls.slice(i, i + concurrency);
+    pages.push(...(await Promise.all(batch.map((u) => crawlPage(u, base, site)))));
+    process.stdout.write(`\r  crawled ${Math.min(i + concurrency, urls.length)}/${urls.length}`);
+  }
+  process.stdout.write("\n");
+
+  const robotsRes = await fetchWithRetry(`${base}/robots.txt`).catch(() => null);
+  const robots = robotsRes && robotsRes.ok ? await robotsRes.text() : null;
+  const aiCrawlers = await checkAiCrawlers(base, robots, robotsRes?.status ?? null);
+
+  // Coverage and health are separate numbers and must never be mixed. A page
+  // that failed to fetch is an UNKNOWN: it lowers how much of the site was
+  // measured, and it says nothing about the site's health. Counting it as
+  // "missing a title" turns "I could not look" into "your page is broken",
+  // which is the single most common way an audit tool lies.
+  const fetched = pages.filter((p) => !p.error);
+  const failed = pages.filter((p) => p.error);
+
+  // The inbound-link graph, built from links already collected. A page that
+  // nothing links to is reachable only from the sitemap, which is the doorway
+  // pattern — and it is the check that would have failed four pages every
+  // on-page rule passed.
+  const inbound = new Map();
+  for (const page of fetched) {
+    const self = normalizeLink(page.finalUrl || page.url, base);
+    for (const target of page.internalTargets || []) {
+      if (target === self) continue;
+      if (!inbound.has(target)) inbound.set(target, new Set());
+      inbound.get(target).add(self);
+    }
+  }
+  for (const page of fetched) {
+    const self = normalizeLink(page.finalUrl || page.url, base);
+    page.inboundLinks = inbound.get(self)?.size ?? 0;
+  }
+  const orphans = fetched
+    .filter((p) => p.inboundLinks === 0 && (p.finalUrl || p.url) !== base && (p.finalUrl || p.url) !== `${base}/`)
+    .map((p) => p.finalUrl || p.url);
+
+  // Why a page was not read, not just that it was not. A WAF challenge and a
+  // dead URL both used to land in one `failed` bucket.
+  const byClass = Object.fromEntries(FETCH_CLASSES.map((c) => [c, 0]));
+  for (const page of pages) byClass[page.fetchClass || "error"] += 1;
+
+  const titles = new Map();
+  const descs = new Map();
+  for (const p of fetched) {
+    if (p.title) titles.set(p.title, (titles.get(p.title) || 0) + 1);
+    if (p.description) descs.set(p.description, (descs.get(p.description) || 0) + 1);
+  }
+
+  return {
+    base,
+    capturedAt: new Date().toISOString(),
+    sitemapUrlCount: urls.length,
+    robots,
+    // Whether the assistants are allowed in at all. Captured with every crawl so
+    // it lands in each snapshot and shows up in a diff the day it changes —
+    // a site can start blocking them without anyone having decided to.
+    aiCrawlers,
+    // How much of the site was actually measured. Every health figure below is
+    // computed over `fetched` only, and is a statement about that subset.
+    coverage: {
+      attempted: pages.length,
+      fetched: fetched.length,
+      failed: failed.length,
+      failedUrls: failed.map((p) => ({ url: p.url, error: p.error })),
+      pct: pages.length ? Math.round((fetched.length / pages.length) * 100) : 0,
+      // 80+ is a graded report, 60-79 is provisional and must say so on every
+      // figure, below 60 no summary verdict may be presented at all.
+      grade: !pages.length ? "none"
+        : fetched.length / pages.length >= 0.8 ? "graded"
+        : fetched.length / pages.length >= 0.6 ? "provisional"
+        : "insufficient",
+      // Read this before reading the grade: low coverage because the site
+      // blocked the crawler is a finding about the site's edge, not about its
+      // pages, and the two get opposite recommendations.
+      byClass,
+    },
+    summary: {
+      pages: fetched.length,
+      errors: failed.length,
+      non200: fetched.filter((p) => p.status && p.status !== 200).length,
+      redirected: fetched.filter((p) => p.redirected).length,
+      missingTitle: fetched.filter((p) => !p.title).length,
+      missingDescription: fetched.filter((p) => !p.description).length,
+      missingCanonical: fetched.filter((p) => !p.canonical).length,
+      noindex: fetched.filter((p) => (p.robots || "").includes("noindex")).map((p) => p.url),
+      duplicateTitles: [...titles].filter(([, n]) => n > 1).map(([t, n]) => ({ title: t, count: n })),
+      duplicateDescriptions: [...descs].filter(([, n]) => n > 1).map(([d, n]) => ({ description: d, count: n })),
+      titleTooLong: fetched.filter((p) => p.titleLength > 60).map((p) => ({ url: p.url, length: p.titleLength })),
+      descriptionOutOfRange: fetched
+        .filter((p) => p.description && (p.descriptionLength < 70 || p.descriptionLength > 160))
+        .map((p) => ({ url: p.url, length: p.descriptionLength })),
+      multipleH1: fetched.filter((p) => p.h1Count > 1).map((p) => p.url),
+      emptyH1: fetched.filter((p) => p.h1Count > 0 && p.h1.every((h) => !h)).map((p) => p.url),
+      totalImagesMissingAlt: fetched.reduce((n, p) => n + (p.imagesMissingAlt || 0), 0),
+      totalWords: fetched.reduce((n, p) => n + (p.wordCount || 0), 0),
+      // In the sitemap, reachable from no other page on the site.
+      orphanPages: orphans,
+      headerNoindex: fetched
+        .filter((p) => (p.xRobotsTag || "").includes("noindex"))
+        .map((p) => p.finalUrl || p.url),
+      redirectChains: fetched
+        .filter((p) => (p.redirectChain || []).length > 1)
+        .map((p) => ({ url: p.url, hops: p.redirectChain.length })),
+    },
+    pages,
+  };
+}
+
+// --------------------------------------------------------- pagespeed insights
+
+async function runPsi(url, strategy) {
+  const params = new URLSearchParams({ url, strategy });
+  for (const c of ["performance", "seo", "accessibility", "best-practices"]) params.append("category", c);
+  const psiKey = secret("PSI_API_KEY");
+  if (psiKey) params.set("key", psiKey);
+
+  // Keyless PSI throttles hard and unpredictably. A throttled page is a gap in
+  // the snapshot, never a reason to lose the rest of it, so this always returns.
+  let res;
+  try {
+    res = await fetchWithRetry(
+      `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${params}`,
+      {},
+      psiKey ? 3 : 5,
+    );
+  } catch (err) {
+    return { url, strategy, error: `${err.message || err} (add PSI_API_KEY to the keychain to avoid throttling)` };
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return { url, strategy, error: body?.error?.message || `HTTP ${res.status}` };
+
+  const lh = body.lighthouseResult || {};
+  const audits = lh.audits || {};
+  const pick = (id) => audits[id]?.numericValue ?? null;
+  const field = body.loadingExperience?.metrics || {};
+  const fieldOf = (k) => (field[k] ? { p75: field[k].percentile, category: field[k].category } : null);
+
+  return {
+    url, strategy,
+    fetchedAt: lh.fetchTime || new Date().toISOString(),
+    scores: Object.fromEntries(
+      Object.entries(lh.categories || {}).map(([k, v]) => [k, v.score == null ? null : Math.round(v.score * 100)]),
+    ),
+    lab: {
+      lcpMs: pick("largest-contentful-paint"),
+      clsScore: audits["cumulative-layout-shift"]?.numericValue ?? null,
+      tbtMs: pick("total-blocking-time"),
+      fcpMs: pick("first-contentful-paint"),
+      speedIndexMs: pick("speed-index"),
+    },
+    // CrUX field data is a rolling 28-day window of real visits, which is why a
+    // reading taken today still mostly describes the pre-change site.
+    field: {
+      overall: body.loadingExperience?.overall_category || null,
+      lcp: fieldOf("LARGEST_CONTENTFUL_PAINT_MS"),
+      inp: fieldOf("INTERACTION_TO_NEXT_PAINT"),
+      cls: fieldOf("CUMULATIVE_LAYOUT_SHIFT_SCORE"),
+      ttfb: fieldOf("EXPERIMENTAL_TIME_TO_FIRST_BYTE"),
+    },
+    failedSeoAudits: Object.values(audits)
+      .filter((a) => a.score !== null && a.score < 1 && a.id && lh.categories?.seo?.auditRefs?.some((r) => r.id === a.id))
+      .map((a) => ({ id: a.id, title: a.title })),
+  };
+}
+
+// ---------------------------------------------------------------------- bing
+
+async function captureBing(site) {
+  const key = secret("BING_WMT_API_KEY");
+  if (!key) return { skipped: "BING_WMT_API_KEY not in the keychain or environment" };
+  const base = "https://ssl.bing.com/webmaster/api.svc/json";
+  const siteUrl = encodeURIComponent(site);
+  const out = {};
+  // GetUrlTrafficInfo takes a `url` on TOP of `siteUrl` and 400s without it.
+  // Its error says `SiteUriSchemeIsNotSupported`, which points at the scheme
+  // rather than the missing argument, which is why this went unnoticed until
+  // the key was first exercised on 2026-09-19. The other three take siteUrl alone.
+  for (const [name, path, extra] of [
+    ["rankAndTraffic", "GetRankAndTrafficStats", ""],
+    ["queryStats", "GetQueryStats", ""],
+    ["pageStats", "GetPageStats", ""],
+    ["urlCounts", "GetUrlTrafficInfo", `&url=${siteUrl}`],
+  ]) {
+    try {
+      const res = await fetchWithRetry(`${base}/${path}?apikey=${key}&siteUrl=${siteUrl}${extra}`);
+      out[name] = await res.json();
+    } catch (err) {
+      out[name] = { error: String(err.message || err) };
+    }
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------- capture
+
+async function capture(cfg, flags) {
+  const site = requireSite(cfg);
+  const label = flags.label || "snapshot";
+  const until = flags.until && flags.until !== true ? flags.until : iso(new Date());
+  const days = Number(flags.days || 90);
+  const from = flags.from && flags.from !== true ? flags.from : daysAgo(days, until);
+  const base = flags.base && flags.base !== true ? flags.base : site;
+  const skip = String(flags.skip || "").split(",").map((s) => s.trim()).filter(Boolean);
+  // Named for the end of the window, not for today, so a backfilled snapshot
+  // (--until 2026-09-17) files itself under the date it actually describes.
+  const dir = join(cfg.snapRoot, `${until}-${label}`);
+  mkdirSync(dir, { recursive: true });
+
+  const manifest = {
+    label,
+    capturedAt: new Date().toISOString(),
+    window: { from, until },
+    site,
+    base,
+    tool: "seo-audit/seo.mjs",
+    // If the config names the commit the changes started from, it travels with
+    // the snapshot, so a later reader knows exactly what "before" meant without
+    // re-deriving it from the log.
+    changeBoundary: cfg.changeBoundary || null,
+    captured: [],
+    skipped: [],
+  };
+
+  console.log(paint(`\nSEO snapshot: ${label}`, C.bold));
+  console.log(`  window ${from} .. ${until}`);
+  console.log(`  into   ${dir}\n`);
+
+  // --- Search Console -------------------------------------------------------
+  if (!skip.includes("gsc")) {
+    if (!haveKeyFile(cfg)) {
+      console.log(warn("  gsc        locked — no service-account key. `node seo.mjs doctor` walks through it."));
+      manifest.skipped.push({ source: "gsc", reason: `no key at ${cfg.keyFile}` });
+    } else if (!cfg.properties.length) {
+      console.log(warn("  gsc        locked — no searchConsole.properties in the config"));
+      manifest.skipped.push({ source: "gsc", reason: "no properties configured" });
+    } else {
+      for (const property of cfg.properties) {
+        const slug = property.replace(/[^a-z0-9]+/gi, "-").replace(/-+$/, "");
+        console.log(`  gsc        ${property}`);
+        const cuts = {
+          daily: ["date"],
+          queries: ["query"],
+          pages: ["page"],
+          queryByPage: ["query", "page"],
+          countries: ["country"],
+          devices: ["device"],
+          appearance: ["searchAppearance"],
+        };
+        const result = { property, window: { from, until }, cuts: {} };
+        for (const [name, dimensions] of Object.entries(cuts)) {
+          try {
+            const rows = await searchAnalytics(cfg, property, {
+              startDate: from, endDate: until, dimensions,
+            });
+            result.cuts[name] = rows.map((r) => ({
+              keys: r.keys,
+              clicks: r.clicks,
+              impressions: r.impressions,
+              ctr: r.ctr,
+              position: r.position,
+            }));
+            console.log(`    ${name.padEnd(12)} ${ok(String(rows.length).padStart(5))} rows`);
+          } catch (err) {
+            result.cuts[name] = { error: String(err.message || err) };
+            console.log(`    ${name.padEnd(12)} ${bad(String(err.message || err))}`);
+          }
+        }
+        result.totals = totalsOf(result.cuts.daily);
+        writeJSON(join(dir, "gsc", `${slug}.json`), result);
+        manifest.captured.push(`gsc/${slug}.json`);
+      }
+    }
+  } else manifest.skipped.push({ source: "gsc", reason: "--skip" });
+
+  // --- URL inspection -------------------------------------------------------
+  if (!skip.includes("inspection") && haveKeyFile(cfg) && cfg.properties.length) {
+    console.log(`  inspect    every sitemap URL`);
+    try {
+      const urls = await fetchSitemapUrls(base);
+      const property = cfg.properties[0];
+      const results = [];
+      for (const url of urls) {
+        try {
+          const r = await inspectUrl(cfg, property, url.replace(base, site));
+          const idx = r.indexStatusResult || {};
+          results.push({
+            url,
+            verdict: idx.verdict || null,
+            coverageState: idx.coverageState || null,
+            robotsTxtState: idx.robotsTxtState || null,
+            indexingState: idx.indexingState || null,
+            googleCanonical: idx.googleCanonical || null,
+            userCanonical: idx.userCanonical || null,
+            lastCrawlTime: idx.lastCrawlTime || null,
+            crawledAs: idx.crawledAs || null,
+            sitemaps: idx.sitemap || [],
+            referringUrls: idx.referringUrls || [],
+            richResults: r.richResultsResult?.verdict || null,
+            mobileUsability: r.mobileUsabilityResult?.verdict || null,
+          });
+          process.stdout.write(`\r    ${results.length}/${urls.length}`);
+        } catch (err) {
+          results.push({ url, error: String(err.message || err) });
+        }
+        await sleep(250); // stay well inside the 600/min quota
+      }
+      process.stdout.write("\n");
+      const indexed = results.filter((r) => r.coverageState?.startsWith("Submitted and indexed") || r.verdict === "PASS").length;
+      console.log(`    ${ok(`${indexed}/${results.length}`)} pass URL inspection`);
+      writeJSON(join(dir, "inspection", "sitemap-urls.json"), {
+        property, capturedAt: new Date().toISOString(),
+        summary: { total: results.length, passing: indexed },
+        results,
+      });
+      manifest.captured.push("inspection/sitemap-urls.json");
+    } catch (err) {
+      console.log(bad(`    ${err.message || err}`));
+      manifest.skipped.push({ source: "inspection", reason: String(err.message || err) });
+    }
+  } else if (skip.includes("inspection")) {
+    manifest.skipped.push({ source: "inspection", reason: "--skip" });
+  } else {
+    manifest.skipped.push({ source: "inspection", reason: "Search Console not connected" });
+  }
+
+  // --- on-page crawl --------------------------------------------------------
+  if (!skip.includes("onpage")) {
+    console.log(`  onpage     crawling ${base}`);
+    try {
+      const crawl = await crawlSite(base, { site });
+      writeJSON(join(dir, "onpage.json"), crawl);
+      manifest.captured.push("onpage.json");
+      manifest.coverage = crawl.coverage;
+      console.log(
+        `    ${ok(`${crawl.summary.pages} pages`)} ` +
+        `(${crawl.coverage.pct}% of ${crawl.coverage.attempted} fetched, ${crawl.coverage.grade}), ` +
+        `${crawl.summary.missingDescription} missing description, ` +
+        `${crawl.summary.duplicateTitles.length} duplicate titles`,
+      );
+      reportAiCrawlers(crawl.aiCrawlers);
+    } catch (err) {
+      console.log(bad(`    ${err.message || err}`));
+      manifest.skipped.push({ source: "onpage", reason: String(err.message || err) });
+    }
+  } else manifest.skipped.push({ source: "onpage", reason: "--skip" });
+
+  // --- pagespeed ------------------------------------------------------------
+  if (!skip.includes("psi")) {
+    const configured = (flags.psiUrls && flags.psiUrls !== true
+      ? String(flags.psiUrls).split(",")
+      : cfg.psi.urls.length ? cfg.psi.urls : ["/"])
+      .map((u) => (/^https?:/i.test(u) ? u : `${site}${u.startsWith("/") ? "" : "/"}${u}`));
+    // Keyless PageSpeed is throttled hard and unpredictably. Rather than spend
+    // two minutes collecting gaps on the first run, take one reading and say so.
+    const hasKey = Boolean(secret("PSI_API_KEY"));
+    const targets = hasKey ? configured : configured.slice(0, 1);
+    const strategies = hasKey ? ["mobile", "desktop"] : ["mobile"];
+    if (!hasKey && (configured.length > 1 || targets.length < configured.length)) {
+      console.log(warn(`  psi        no PSI_API_KEY — capped at ${targets.length} url, mobile only`));
+      manifest.skipped.push({
+        source: "psi",
+        reason: `no PSI_API_KEY; captured ${targets.length}/${configured.length} urls, mobile only`,
+      });
+    }
+    console.log(`  psi        ${targets.length} url(s) x ${strategies.length} strateg${strategies.length > 1 ? "ies" : "y"}`);
+    const runs = [];
+    for (const url of targets) {
+      for (const strategy of strategies) {
+        const r = await runPsi(url, strategy);
+        runs.push(r);
+        const s = r.scores ? `perf ${r.scores.performance} seo ${r.scores.seo}` : bad(r.error);
+        console.log(`    ${strategy.padEnd(8)} ${(url.replace(site, "") || "/").padEnd(34)} ${s}`);
+        await sleep(hasKey ? 1200 : 6000);
+      }
+    }
+    writeJSON(join(dir, "psi", "runs.json"), { capturedAt: new Date().toISOString(), runs });
+    manifest.captured.push("psi/runs.json");
+  } else manifest.skipped.push({ source: "psi", reason: "--skip" });
+
+  // --- bing -----------------------------------------------------------------
+  if (!skip.includes("bing") && cfg.bing.enabled !== false) {
+    const bing = await captureBing(site);
+    writeJSON(join(dir, "bing.json"), bing);
+    if (bing.skipped) console.log(warn(`  bing       skipped (${bing.skipped})`));
+    else console.log(ok("  bing       captured"));
+    manifest.captured.push("bing.json");
+  }
+
+  writeJSON(join(dir, "manifest.json"), manifest);
+  console.log(`\n${ok("Snapshot written")} → ${dir}\n`);
+  return dir;
+}
+
+function totalsOf(dailyRows) {
+  if (!Array.isArray(dailyRows)) return null;
+  const clicks = dailyRows.reduce((n, r) => n + (r.clicks || 0), 0);
+  const impressions = dailyRows.reduce((n, r) => n + (r.impressions || 0), 0);
+  const weighted = dailyRows.reduce((n, r) => n + (r.position || 0) * (r.impressions || 0), 0);
+  return {
+    clicks,
+    impressions,
+    ctr: impressions ? clicks / impressions : 0,
+    position: impressions ? weighted / impressions : null,
+    days: dailyRows.length,
+  };
+}
+
+// ------------------------------------------------------------------- compare
+
+// An exact label always wins. Substring matching is a convenience, and it used
+// to take the LAST match after sorting — so `2026-09-17-pre-change` silently
+// resolved to `2026-09-17-pre-change-28d`, a snapshot with no onpage.json, and
+// the comparison quietly skipped every on-page section. It printed the name it
+// substituted and never errored. An ambiguous label is now a question, not a
+// guess: the caller gets told which snapshots matched.
+function findSnapshot(root, label) {
+  if (!existsSync(root)) return null;
+  const dirs = readdirSync(root, { withFileTypes: true })
+    .filter((e) => e.isDirectory()).map((e) => e.name).sort();
+
+  if (dirs.includes(label)) return join(root, label);
+
+  const matches = dirs.filter((d) => d.includes(label));
+  if (matches.length > 1) {
+    throw new Error(
+      `Ambiguous snapshot label "${label}" — matches ${matches.length}:\n  ${matches.join("\n  ")}\n` +
+      `Pass one of them exactly.`,
+    );
+  }
+  return matches.length ? join(root, matches[0]) : null;
+}
+
+function readIf(path) {
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
+}
+
+function delta(a, b, { digits = 0, invert = false } = {}) {
+  if (a == null || b == null) return paint("—", C.dim);
+  const d = b - a;
+  const s = `${d > 0 ? "+" : ""}${d.toFixed(digits)}`;
+  if (Math.abs(d) < Number(`1e-${digits + 1}`)) return paint(s, C.dim);
+  const good = invert ? d < 0 : d > 0;
+  return paint(s, good ? C.green : C.red);
+}
+
+function compare(cfg, labelA, labelB) {
+  const root = cfg.snapRoot;
+  const dirA = findSnapshot(root, labelA);
+  const dirB = findSnapshot(root, labelB);
+  if (!dirA || !dirB) {
+    console.error(bad(`Could not find snapshots for "${labelA}" and "${labelB}".`));
+    console.error(`Available: ${existsSync(root) ? readdirSync(root).join(", ") : "none"}`);
+    process.exit(1);
+  }
+  const lines = [];
+  const say = (s = "") => { console.log(s); lines.push(s.replace(/\x1b\[[0-9;]*m/g, "")); };
+
+  const mA = readIf(join(dirA, "manifest.json"));
+  const mB = readIf(join(dirB, "manifest.json"));
+  say(paint(`\nSEO snapshot comparison`, C.bold));
+  say(`  A  ${mA?.label} — window ${mA?.window.from} .. ${mA?.window.until}`);
+  say(`  B  ${mB?.label} — window ${mB?.window.from} .. ${mB?.window.until}\n`);
+
+  // Two snapshots taken with different tool versions or against different
+  // hosts are not a measurement of the site. Say so rather than diffing them.
+  if (mA?.base && mB?.base && mA.base !== mB.base) {
+    say(warn(`  ⚠ different crawl bases: ${mA.base} vs ${mB.base} — on-page diffs below compare two different servers`));
+  }
+  for (const [label, m] of [["A", mA], ["B", mB]]) {
+    if (m?.coverage && m.coverage.grade !== "graded") {
+      say(warn(`  ⚠ snapshot ${label} measured only ${m.coverage.pct}% of its pages (${m.coverage.grade}) — every on-page delta below is provisional`));
+    }
+  }
+  if (mA?.skipped?.length || mB?.skipped?.length) {
+    const names = [...new Set([...(mA?.skipped || []), ...(mB?.skipped || [])].map((x) => x.source))];
+    say(paint(`  sources missing from one or both snapshots: ${names.join(", ")}`, C.dim));
+  }
+  say("");
+
+  // Search Console totals
+  const properties = cfg.properties.length
+    ? cfg.properties
+    // A compare must still work when it is run without a config — read the
+    // property names out of the snapshots themselves.
+    : [...new Set([mA, mB].flatMap((m) => (m?.captured || [])
+        .filter((f) => f.startsWith("gsc/"))
+        .map((f) => f.slice(4, -5))))];
+  for (const property of properties) {
+    const slug = property.replace(/[^a-z0-9]+/gi, "-").replace(/-+$/, "");
+    const a = readIf(join(dirA, "gsc", `${slug}.json`));
+    const b = readIf(join(dirB, "gsc", `${slug}.json`));
+    if (!a || !b) continue;
+    say(paint(`Search Console — ${property}`, C.cyan));
+    const ta = a.totals, tb = b.totals;
+    if (ta && tb) {
+      say(`  clicks        ${String(ta.clicks).padStart(7)} → ${String(tb.clicks).padStart(7)}   ${delta(ta.clicks, tb.clicks)}`);
+      say(`  impressions   ${String(ta.impressions).padStart(7)} → ${String(tb.impressions).padStart(7)}   ${delta(ta.impressions, tb.impressions)}`);
+      say(`  ctr           ${(ta.ctr * 100).toFixed(2).padStart(6)}% → ${(tb.ctr * 100).toFixed(2).padStart(6)}%   ${delta(ta.ctr * 100, tb.ctr * 100, { digits: 2 })}`);
+      say(`  avg position  ${ta.position?.toFixed(2).padStart(7)} → ${tb.position?.toFixed(2).padStart(7)}   ${delta(ta.position, tb.position, { digits: 2, invert: true })} ${paint("(lower is better)", C.dim)}`);
+    }
+
+    // Per-query movement, ranked by impression volume in the later snapshot.
+    const mapOf = (snap) => new Map((snap.cuts.queries || []).map((r) => [r.keys[0], r]));
+    const qa = mapOf(a), qb = mapOf(b);
+    const keys = [...new Set([...qa.keys(), ...qb.keys()])]
+      .sort((x, y) => (qb.get(y)?.impressions || 0) - (qb.get(x)?.impressions || 0))
+      .slice(0, 20);
+    say(`\n  ${"query".padEnd(38)} ${"impr".padStart(12)}  ${"position".padStart(16)}`);
+    for (const k of keys) {
+      const x = qa.get(k), y = qb.get(k);
+      const impr = `${String(x?.impressions ?? "–").padStart(5)} → ${String(y?.impressions ?? "–").padStart(5)}`;
+      const pos = `${(x?.position?.toFixed(1) ?? "–").padStart(5)} → ${(y?.position?.toFixed(1) ?? "–").padStart(5)}`;
+      const move = x && y ? delta(x.position, y.position, { digits: 1, invert: true }) : paint(y && !x ? "new" : "gone", C.dim);
+      say(`  ${k.slice(0, 38).padEnd(38)} ${impr}  ${pos} ${move}`);
+    }
+    say("");
+  }
+
+  // Indexation
+  const iA = readIf(join(dirA, "inspection", "sitemap-urls.json"));
+  const iB = readIf(join(dirB, "inspection", "sitemap-urls.json"));
+  if (iA && iB) {
+    say(paint("Indexation (URL Inspection)", C.cyan));
+    say(`  passing       ${String(iA.summary.passing).padStart(7)} → ${String(iB.summary.passing).padStart(7)}   ${delta(iA.summary.passing, iB.summary.passing)}`);
+    const stateA = new Map(iA.results.map((r) => [r.url, r.coverageState]));
+    for (const r of iB.results) {
+      const before = stateA.get(r.url);
+      if (before !== r.coverageState) say(`  ${paint("changed", C.yellow)} ${r.url}\n      ${before || "—"} → ${r.coverageState || "—"}`);
+    }
+    say("");
+  }
+
+  // On-page
+  const oA = readIf(join(dirA, "onpage.json"));
+  const oB = readIf(join(dirB, "onpage.json"));
+  if (oA && oB) {
+    say(paint("On-page", C.cyan));
+    const rows = [
+      ["pages in sitemap", oA.sitemapUrlCount, oB.sitemapUrlCount, false],
+      ["missing description", oA.summary.missingDescription, oB.summary.missingDescription, true],
+      ["duplicate titles", oA.summary.duplicateTitles.length, oB.summary.duplicateTitles.length, true],
+      ["images missing alt", oA.summary.totalImagesMissingAlt, oB.summary.totalImagesMissingAlt, true],
+      ["total words", oA.summary.totalWords, oB.summary.totalWords, false],
+    ];
+    for (const [name, x, y, invert] of rows) {
+      say(`  ${name.padEnd(22)} ${String(x).padStart(7)} → ${String(y).padStart(7)}   ${delta(x, y, { invert })}`);
+    }
+    // Per-URL drift. A total that moved tells you something changed; it does
+    // not tell you which page broke, and the page that broke is the whole
+    // reason for keeping a baseline. Each rule names one transition and what
+    // it costs, so the reader is not left diffing two numbers by eye.
+    const byUrlA = new Map(oA.pages.map((p) => [p.url.replace(oA.base, ""), p]));
+    const seenB = new Set();
+    const findings = [];
+    const add = (sev, rule, key, detail) => findings.push({ sev, rule, key: key || "/", detail });
+    const noindexed = (p) => `${p.robots || ""} ${p.xRobotsTag || ""}`.includes("noindex");
+    const types = (p) => new Set(p.jsonLdTypes || []);
+
+    for (const p of oB.pages) {
+      const key = p.url.replace(oB.base, "");
+      seenB.add(key);
+      const a = byUrlA.get(key);
+      if (!a) { add("info", "page added", key); continue; }
+      if (a.error || p.error) continue; // a page we could not read is not a page that changed
+
+      if (a.status === 200 && p.status !== 200) add("critical", "status regressed", key, `${a.status} → ${p.status}`);
+      if (!noindexed(a) && noindexed(p)) add("critical", "noindex added", key, p.xRobotsTag ? "via X-Robots-Tag" : "via meta robots");
+      if (a.canonical && !p.canonical) add("critical", "canonical removed", key);
+      else if (a.canonical && p.canonical && a.canonical !== p.canonical) add("warning", "canonical changed", key, `${a.canonical} → ${p.canonical}`);
+      if (a.h1Count > 0 && a.h1.some(Boolean) && (p.h1Count === 0 || !p.h1.some(Boolean))) add("critical", "h1 removed", key);
+      if (a.title && !p.title) add("critical", "title removed", key);
+      if (a.og?.image && !p.og?.image) add("warning", "og:image removed", key);
+
+      const lost = [...types(a)].filter((t) => !types(p).has(t));
+      if (lost.length) add("warning", "schema type removed", key, lost.join(", "));
+
+      if ((a.inboundLinks ?? null) !== null && a.inboundLinks > 0 && p.inboundLinks === 0) {
+        add("warning", "became orphan", key, "nothing on the site links here any more");
+      }
+      if (a.title && p.title && a.title !== p.title) add("info", "title changed", key, `${a.title} → ${p.title}`);
+      if (a.description && p.description && a.description !== p.description) add("info", "description changed", key);
+    }
+    for (const [key] of byUrlA) if (!seenB.has(key)) add("critical", "page gone", key, "in the earlier sitemap, absent now");
+
+    if (findings.length) {
+      const order = { critical: 0, warning: 1, info: 2 };
+      const colour = { critical: C.red, warning: C.yellow, info: C.dim };
+      findings.sort((x, y) => order[x.sev] - order[y.sev] || x.rule.localeCompare(y.rule));
+      say("");
+      for (const f of findings.slice(0, 40)) {
+        say(`  ${paint(f.rule.padEnd(20), colour[f.sev])} ${f.key}${f.detail ? paint(`  ${f.detail}`, C.dim) : ""}`);
+      }
+      if (findings.length > 40) say(paint(`  …and ${findings.length - 40} more`, C.dim));
+      const crit = findings.filter((f) => f.sev === "critical").length;
+      say(crit
+        ? bad(`  ${crit} regression${crit === 1 ? "" : "s"} that can cost indexing — fix these first`)
+        : ok("  no indexing-critical regressions"));
+    } else {
+      say(`  ${paint("no per-page changes", C.dim)}`);
+    }
+    const sameA = new Set(oA.pages.flatMap((p) => p.sameAs));
+    const sameB = new Set(oB.pages.flatMap((p) => p.sameAs));
+    const added = [...sameB].filter((x) => !sameA.has(x));
+    const removed = [...sameA].filter((x) => !sameB.has(x));
+    if (added.length) say(`  ${paint("sameAs added", C.green)}   ${added.join(", ")}`);
+    if (removed.length) say(`  ${paint("sameAs removed", C.red)} ${removed.join(", ")}`);
+
+    // A snapshot older than this check has no aiCrawlers block. Say that
+    // plainly rather than printing "no change" — an absent field and an
+    // unchanged one are different facts.
+    if (!oA.aiCrawlers || !oB.aiCrawlers) {
+      say(`  ${paint("ai crawlers", C.dim)} ${paint("not captured in both snapshots — no comparison", C.dim)}`);
+    } else {
+      const states = (o) => Object.fromEntries(Object.entries(o.aiCrawlers.bots || {}).map(([k, v]) => [k, v.state]));
+      const a = states(oA), b = states(oB);
+      const changed = Object.keys({ ...a, ...b }).filter((k) => a[k] !== b[k]);
+      if (changed.length) {
+        for (const k of changed) say(`  ${paint("ai crawler", C.red)} ${k} ${a[k] ?? "—"} → ${b[k] ?? "—"}`);
+      } else {
+        say(`  ${paint("ai crawlers", C.dim)} ${oB.aiCrawlers.verdict === "allowed" ? ok("unchanged, allowed") : warn(`unchanged, ${oB.aiCrawlers.verdict}`)}`);
+      }
+    }
+    say("");
+  }
+
+  // PageSpeed
+  const pA = readIf(join(dirA, "psi", "runs.json"));
+  const pB = readIf(join(dirB, "psi", "runs.json"));
+  if (pA && pB) {
+    say(paint("PageSpeed", C.cyan));
+    const key = (r) => `${r.url}|${r.strategy}`;
+    const mapB = new Map(pB.runs.map((r) => [key(r), r]));
+    for (const a of pA.runs) {
+      const b = mapB.get(key(a));
+      if (!b || !a.scores || !b.scores) continue;
+      say(`  ${a.strategy.padEnd(8)} ${(a.url.replace(mB?.site || "", "") || "/").padEnd(34)} ` +
+        `perf ${String(a.scores.performance).padStart(3)} → ${String(b.scores.performance).padStart(3)} ${delta(a.scores.performance, b.scores.performance)}  ` +
+        `seo ${String(a.scores.seo).padStart(3)} → ${String(b.scores.seo).padStart(3)} ${delta(a.scores.seo, b.scores.seo)}`);
+    }
+    say("");
+  }
+
+  const out = join(root, `compare-${mA?.label}-vs-${mB?.label}.txt`);
+  writeFileSync(out, lines.join("\n") + "\n");
+  console.log(paint(`Report saved → ${out}\n`, C.dim));
+}
+
+// ---------------------------------------------------------------------- init
+//
+// The config is written by looking, not by asking. Every field this can infer
+// from the filesystem is inferred, and the user only ever confirms the rest.
+
+function guessSite(dir) {
+  // A site URL is usually already written down somewhere in the project.
+  const tries = [
+    ["package.json", (t) => JSON.parse(t).homepage],
+    ["site.config.json", (t) => JSON.parse(t).url || JSON.parse(t).site],
+    ["astro.config.mjs", (t) => t.match(/site\s*:\s*["'`]([^"'`]+)/)?.[1]],
+    ["next.config.js", (t) => t.match(/siteUrl\s*:\s*["'`]([^"'`]+)/)?.[1]],
+    ["next-sitemap.config.js", (t) => t.match(/siteUrl\s*:\s*["'`]([^"'`]+)/)?.[1]],
+    ["gatsby-config.js", (t) => t.match(/siteUrl\s*:\s*["'`]([^"'`]+)/)?.[1]],
+    ["public/CNAME", (t) => `https://${t.trim()}`],
+  ];
+  for (const [file, extract] of tries) {
+    const path = join(dir, file);
+    if (!existsSync(path)) continue;
+    try {
+      const value = extract(readFileSync(path, "utf8"));
+      if (value && /^https?:\/\//.test(value)) return { site: value.replace(/\/+$/, ""), from: file };
+    } catch { /* an unparseable config is not a site; keep looking */ }
+  }
+  return null;
+}
+
+function init(cfg, flags) {
+  const dir = process.cwd();
+  const target = join(dir, CONFIG_NAME);
+  const guessed = guessSite(dir);
+  const site = (flags.site && flags.site !== true ? String(flags.site) : guessed?.site) || null;
+
+  if (existsSync(target) && !flags.force) {
+    console.log(warn(`\n${target} already exists. Pass --force to overwrite it.\n`));
+    return;
+  }
+
+  const out = {
+    site,
+    searchConsole: {
+      // Both property kinds are worth keeping: a domain property sees every
+      // subdomain and protocol, a URL-prefix property usually holds the longer
+      // history. `doctor` prints the exact strings once a key is in place.
+      properties: site ? [`sc-domain:${site.replace(/^https?:\/\//, "").replace(/^www\./, "")}`, `${site}/`] : [],
+      keyFile: "~/.config/seo-audit/gsc-service-account.json",
+    },
+    snapshotDir: "seo-snapshots",
+    psi: { urls: ["/"] },
+    bing: { enabled: true },
+    changeBoundary: null,
+  };
+  writeFileSync(target, JSON.stringify(out, null, 2) + "\n");
+
+  console.log(paint(`\nWrote ${target}`, C.bold));
+  if (guessed && !flags.site) console.log(`  site       ${ok(site)} ${paint(`(read from ${guessed.from})`, C.dim)}`);
+  else if (site) console.log(`  site       ${ok(site)}`);
+  else console.log(`  site       ${bad("not found")} — set it by hand, or re-run with --site https://example.com`);
+  console.log(`  snapshots  ${out.snapshotDir}/`);
+  console.log(`
+  Nothing above needs a credential. Next:
+    node seo.mjs robots     which AI crawlers can read this site
+    node seo.mjs capture --label baseline
+`);
+}
+
+// -------------------------------------------------------------------- robots
+//
+// The AI-crawler check, on its own, because it needs no credentials, takes one
+// request, and is the finding most often missing from an audit entirely.
+
+// Which bot governs which claim. Getting this wrong is the difference between
+// a correct audit and a confidently wrong one: GPTBot is training, and blocking
+// it says nothing about whether ChatGPT Search can cite the site — that is
+// OAI-SearchBot. The same split exists for Anthropic and for Google.
+const CLAIM_MAP = [
+  ["Can ChatGPT cite this site in Search?", "OAI-SearchBot"],
+  ["Can ChatGPT fetch a link a user pasted?", "ChatGPT-User"],
+  ["Is this site in OpenAI's training corpus?", "GPTBot"],
+  ["Can Claude cite this site in Search?", "Claude-SearchBot"],
+  ["Can Claude fetch a link a user pasted?", "Claude-User"],
+  ["Is this site in Anthropic's training corpus?", "ClaudeBot"],
+  ["Can Perplexity cite this site?", "PerplexityBot"],
+  ["Can Google use this site in AI Overviews / Gemini?", "Google-Extended"],
+];
+
+async function robots(cfg, flags) {
+  const site = requireSite(cfg);
+  console.log(paint(`\nAI crawler access — ${site}\n`, C.bold));
+
+  const res = await fetchWithRetry(`${site}/robots.txt`).catch(() => null);
+  const text = res && res.ok ? await res.text() : null;
+  const ai = await checkAiCrawlers(site, text, res?.status ?? null);
+  reportAiCrawlers(ai);
+
+  if (ai.verdict !== "unknown") {
+    console.log(paint("\nWhat each answer actually means", C.cyan));
+    for (const [claim, bot] of CLAIM_MAP) {
+      const entry = ai.bots[bot] || {};
+      // A `Disallow: /api/` is not an answer to "can this site be cited". Say
+      // which paths are closed rather than downgrading the whole answer — an
+      // audit that cries partial at every site teaches the reader to ignore it.
+      const label = entry.state === "blocked" ? bad("no")
+        : entry.state === "partial" ? ok("yes")
+        : ok("yes");
+      const except = entry.state === "partial" && entry.paths?.length
+        ? paint(`  except ${entry.paths.join(" ")}`, C.dim)
+        : "";
+      console.log(`  ${label.padEnd(14)} ${claim} ${paint(`(${bot})`, C.dim)}${except}`);
+    }
+  }
+
+  // robots.txt states an intention; an edge rule can contradict it silently.
+  // Reporting is the whole job here — some owners block these bots on purpose,
+  // and changing that without asking makes a policy decision on their behalf.
+  console.log(paint(`
+  This reports; it never changes anything. If a bot is blocked and you meant to
+  block it, that is a decision, not a finding.
+`, C.dim));
+
+  if (flags.out && flags.out !== true) {
+    writeJSON(flags.out, { site, checkedAt: new Date().toISOString(), ...ai });
+    console.log(`${ok("Written")} → ${flags.out}\n`);
+  }
+  return ai;
+}
+
+// -------------------------------------------------------------------- canary
+//
+// Ask every source a question whose answer is already known, before believing
+// anything it says about the site. An empty result and a broken instrument look
+// identical from inside a single query, and a zero that is really a failure
+// flatters every number in the report around it.
+//
+// Four values, never two: PASS, FAIL, UNKNOWN, N/A. An UNKNOWN reduces how much
+// of the report is covered. It never improves the site's health.
+
+const CANARY_CONTROL_PAGE = "https://example.com/";
+const CANARY_CONTROL_ROBOTS = "https://www.google.com/robots.txt";
+
+async function canary(cfg, flags) {
+  const site = cfg.site;
+  console.log(paint("\nCanary — known-answer checks before any result is believed\n", C.bold));
+  const checks = [];
+  const add = (source, question, expected, state, detail) =>
+    checks.push({ source, question, expected, state, detail });
+
+  // 1. The extractor itself. If it cannot read a page whose contents have been
+  //    the same for twenty years, nothing it says about your pages is evidence.
+  try {
+    const page = await crawlPage(CANARY_CONTROL_PAGE, "https://example.com");
+    const gotTitle = (page.title || "").toLowerCase().includes("example domain");
+    add("crawler", `parse ${CANARY_CONTROL_PAGE}`, 'title contains "Example Domain"',
+      page.error ? "FAIL" : gotTitle ? "PASS" : "FAIL",
+      page.error || `title: ${JSON.stringify(page.title)}`);
+  } catch (err) {
+    add("crawler", `parse ${CANARY_CONTROL_PAGE}`, 'title contains "Example Domain"', "FAIL", String(err.message || err));
+  }
+
+  // 2. The robots.txt fetch path, separately, because it has its own failure mode.
+  try {
+    const res = await fetchWithRetry(CANARY_CONTROL_ROBOTS);
+    const text = await res.text();
+    const groups = parseRobots(text);
+    add("robots", `fetch and parse ${CANARY_CONTROL_ROBOTS}`, "at least one User-agent group",
+      groups.length ? "PASS" : "FAIL", `${groups.length} groups parsed`);
+  } catch (err) {
+    add("robots", `fetch ${CANARY_CONTROL_ROBOTS}`, "HTTP 200", "FAIL", String(err.message || err));
+  }
+
+  // 3. The site's own sitemap. Zero URLs is a real possibility and a real
+  //    problem, but an unreachable sitemap is a different fact and must not be
+  //    reported as an empty one.
+  if (site) {
+    try {
+      const urls = await fetchSitemapUrls(site);
+      add("sitemap", `${site}/sitemap.xml`, "at least one <loc>",
+        urls.length ? "PASS" : "FAIL",
+        urls.length ? `${urls.length} urls` : "reachable but contains no URLs — the crawl will measure nothing");
+    } catch (err) {
+      add("sitemap", `${site}/sitemap.xml`, "at least one <loc>", "FAIL", String(err.message || err));
+    }
+  } else {
+    add("sitemap", "site sitemap", "at least one <loc>", "N/A", "no site configured");
+  }
+
+  // 4. Search Console. The control is "can this identity see any property at
+  //    all" — because zero rows from a property you cannot see and zero rows
+  //    from a property with no traffic are the same JSON.
+  if (!haveKeyFile(cfg)) {
+    add("search-console", "list properties", "at least one property", "N/A", "not connected");
+  } else {
+    try {
+      const props = await listProperties(cfg);
+      const names = props.map((p) => p.siteUrl);
+      const missing = cfg.properties.filter((w) => !names.includes(w));
+      add("search-console", "list properties", "at least one property",
+        props.length ? (missing.length ? "UNKNOWN" : "PASS") : "FAIL",
+        props.length
+          ? (missing.length ? `visible: ${names.join(", ")}; configured but NOT visible: ${missing.join(", ")}` : `${props.length} visible`)
+          : "the key works but sees no properties — it has not been added as an Owner yet");
+    } catch (err) {
+      add("search-console", "list properties", "at least one property", "FAIL", String(err.message || err));
+    }
+  }
+
+  // 5. PageSpeed. Control target rather than the user's site, so a throttle is
+  //    distinguishable from a slow page.
+  if (!secret("PSI_API_KEY")) {
+    add("pagespeed", `score ${CANARY_CONTROL_PAGE}`, "a performance score", "N/A", "no PSI_API_KEY — runs unkeyed and throttled");
+  } else {
+    const r = await runPsi(CANARY_CONTROL_PAGE, "mobile");
+    add("pagespeed", `score ${CANARY_CONTROL_PAGE}`, "a performance score",
+      r.scores?.performance != null ? "PASS" : "FAIL", r.error || `performance ${r.scores?.performance}`);
+  }
+
+  // 6. Bing. An endpoint that returns an empty array for a site with pages is
+  //    the exact failure this whole command exists for.
+  if (!secret("BING_WMT_API_KEY")) {
+    add("bing", "rank and traffic stats", "a non-empty series", "N/A", "no BING_WMT_API_KEY");
+  } else if (!site) {
+    add("bing", "rank and traffic stats", "a non-empty series", "N/A", "no site configured");
+  } else {
+    const b = await captureBing(site);
+    const series = b.rankAndTraffic?.d;
+    add("bing", "rank and traffic stats", "a non-empty series",
+      b.rankAndTraffic?.error ? "FAIL" : Array.isArray(series) && series.length ? "PASS" : "UNKNOWN",
+      b.rankAndTraffic?.error || (Array.isArray(series) ? `${series.length} rows` : "no series in the response — treat any Bing zero below as unavailable, not as zero"));
+  }
+
+  const mark = { PASS: ok("PASS"), FAIL: bad("FAIL"), UNKNOWN: warn("UNKN"), "N/A": paint("n/a ", C.dim) };
+  for (const c of checks) {
+    console.log(`  ${mark[c.state]}  ${c.source.padEnd(16)} ${c.question}`);
+    console.log(`        ${paint(`expected ${c.expected} — ${c.detail}`, C.dim)}`);
+  }
+
+  const live = checks.filter((c) => c.state !== "N/A");
+  const passed = live.filter((c) => c.state === "PASS").length;
+  const pct = live.length ? Math.round((passed / live.length) * 100) : 0;
+  const failed = checks.filter((c) => c.state === "FAIL");
+
+  console.log(paint(`\n  ${passed}/${live.length} live sources answered correctly (${pct}%)`, C.bold));
+  const notApplicable = checks.filter((c) => c.state === "N/A").map((c) => c.source);
+  if (notApplicable.length) {
+    console.log(paint(`  not connected: ${notApplicable.join(", ")} — these are gaps in coverage, not clean results`, C.dim));
+  }
+  const unknown = checks.filter((c) => c.state === "UNKNOWN");
+  if (failed.length) {
+    console.log(bad(`\n  Do not believe: ${failed.map((c) => c.source).join(", ")}.`));
+    console.log(bad(`  A result from a source that failed its canary is unavailable, never empty.\n`));
+  } else if (unknown.length) {
+    console.log(warn(`\n  Treat as unavailable, not as zero: ${unknown.map((c) => c.source).join(", ")}.`));
+    console.log(warn(`  These answered, but not with something only a working source could return.\n`));
+  } else {
+    console.log(ok(`\n  Every connected source answered a question it could not have faked.\n`));
+  }
+
+  if (flags.out && flags.out !== true) writeJSON(flags.out, { checkedAt: new Date().toISOString(), checks, passed, live: live.length, pct });
+  // Non-zero on a real failure, so this can gate a capture in a script.
+  if (failed.length) process.exitCode = 1;
+  return checks;
+}
+
+// -------------------------------------------------------------------- doctor
+
+async function doctor(cfg) {
+  console.log(paint("\nseo-audit — readiness check\n", C.bold));
+
+  console.log(`  config     ${cfg._path || bad("none found — run `node seo.mjs init`")}`);
+  console.log(`  site       ${cfg.site ? ok(cfg.site) : bad("not set")}`);
+  console.log(`  snapshots  ${cfg.snapRoot}`);
+  console.log(`  key file   ${cfg.keyFile}`);
+
+  if (!haveKeyFile(cfg)) {
+    console.log(`             ${warn("missing — Search Console is locked")}\n`);
+    console.log(paint("  Everything below is optional. The audit already works without it.", C.dim));
+    console.log(paint("  Connecting Search Console adds index state and 16 months of query history.\n", C.dim));
+    console.log(paint("  About 10 minutes of clicking, once:", C.bold));
+    console.log(`
+  1. console.cloud.google.com → create a project (any name).
+  2. APIs & Services → Library → enable "Google Search Console API".
+  3. APIs & Services → Credentials → Create credentials → Service account.
+     Any name. No roles needed. Create.
+  4. Open the service account → Keys → Add key → Create new key → JSON.
+     A file downloads. Move it, do not open it:
+       mkdir -p ~/.config/seo-audit
+       mv ~/Downloads/<that-file>.json ${cfg.keyFile}
+       chmod 600 ${cfg.keyFile}
+  5. Copy the service account's email. It ends in .iam.gserviceaccount.com and is
+     shown on the service account page — it is an identifier, not a secret.
+  6. search.google.com/search-console → for EVERY property you listed in
+     ${CONFIG_NAME}:
+       Settings → Users and permissions → Add user
+       → paste the email, Permission: Owner → Add.
+     Owner, not Full: the URL Inspection API refuses anything less.
+
+  Optional, and it removes the PageSpeed throttling that otherwise leaves gaps:
+  7. Same Cloud project → enable "PageSpeed Insights API" → Credentials →
+     Create credentials → API key. Then put it in the keychain:
+       security add-generic-password -U -a "$USER" -s PSI_API_KEY -w
+     The -w with no value prompts for the key, so it never reaches your shell
+     history. This script reads it from the keychain on its own.
+
+  Then re-run: node seo.mjs doctor
+`);
+    return;
+  }
+
+  console.log(`             ${ok("present")}`);
+  console.log(`  psi key    ${secret("PSI_API_KEY") ? ok("in keychain") : warn("not set — PageSpeed is capped and may be throttled")}`);
+  console.log(`  bing key   ${secret("BING_WMT_API_KEY") ? ok("in keychain") : warn("not set — Bing skipped")}`);
+
+  try {
+    const key = JSON.parse(readFileSync(cfg.keyFile, "utf8"));
+    console.log(`  identity   ${key.client_email}`);
+  } catch {
+    console.log(`  identity   ${bad("unreadable JSON")}`);
+    return;
+  }
+
+  // Presence is not liveness. A key that exists, a key that is revoked, and a
+  // key that was never granted access all look the same on disk, and the only
+  // difference that matters is whether it still works right now.
+  try {
+    await getAccessToken(cfg);
+    console.log(`  token      ${ok("issued")}`);
+  } catch (err) {
+    console.log(`  token      ${bad(err.message)}`);
+    return;
+  }
+
+  try {
+    const props = await listProperties(cfg);
+    if (!props.length) {
+      console.log(`  properties ${bad("none visible")} — step 6 above has not been done yet`);
+      return;
+    }
+    for (const p of props) console.log(`  property   ${ok(p.siteUrl)} (${p.permissionLevel})`);
+    for (const want of cfg.properties) {
+      if (!props.some((p) => p.siteUrl === want)) {
+        console.log(`  ${warn("missing")}    ${want} — add the service account to it too`);
+      }
+    }
+    if (!cfg.properties.length) {
+      console.log(paint(`\n  Add these to searchConsole.properties in ${CONFIG_NAME}:`, C.dim));
+      for (const p of props) console.log(paint(`    "${p.siteUrl}"`, C.dim));
+    }
+  } catch (err) {
+    console.log(`  properties ${bad(err.message)}`);
+  }
+  console.log(paint("\n  Presence is not liveness: every key above was exercised, not just found.\n", C.dim));
+}
+
+// ---------------------------------------------------------------------- main
+
+const USAGE = `
+seo.mjs — freeze a site's search signals into a dated folder you can diff later.
+
+  init      write ${CONFIG_NAME} for this project
+  robots    which AI crawlers can read this site        (no credentials)
+  canary    ask every source a known-answer question    (no credentials)
+  onpage    crawl every sitemap URL into one file       (no credentials)
+  capture   a dated snapshot of everything unlocked
+  compare   diff two snapshots
+  list      what has been captured
+  doctor    are the credentials present AND alive
+
+  --config <path>   use a specific ${CONFIG_NAME}
+  --site <url>      override the configured site
+  --out <path>      write machine-readable output (robots, canary, onpage)
+
+Examples
+  node seo.mjs robots --site https://example.com
+  node seo.mjs capture --label baseline
+  node seo.mjs compare baseline t1
+`;
+
+async function main() {
+  const [cmd, ...rest] = process.argv.slice(2);
+  const flags = parseFlags(rest);
+  const cfg = loadConfig(flags);
+
+  switch (cmd) {
+    case "init": return void init(cfg, flags);
+    case "robots": return void (await robots(cfg, flags));
+    case "canary": return void (await canary(cfg, flags));
+    case "capture": return void (await capture(cfg, flags));
+    case "compare": {
+      const [a, b] = flags._;
+      if (!a || !b) { console.error("Usage: compare <labelA> <labelB>"); process.exit(1); }
+      return compare(cfg, a, b);
+    }
+    case "onpage": {
+      const site = cfg.site;
+      const base = flags.base && flags.base !== true ? flags.base : requireSite(cfg);
+      const out = flags.out && flags.out !== true ? flags.out : join(cfg.snapRoot, "onpage-adhoc.json");
+      console.log(`Crawling ${base}`);
+      const crawl = await crawlSite(base, { site: site || base });
+      writeJSON(out, crawl);
+      reportAiCrawlers(crawl.aiCrawlers);
+      console.log(
+        `\n  ${crawl.coverage.fetched}/${crawl.coverage.attempted} pages fetched ` +
+        `(${crawl.coverage.pct}%, ${crawl.coverage.grade})`,
+      );
+      if (crawl.coverage.grade === "insufficient") {
+        console.log(bad("  Under 60% coverage — do not summarise this site's health from this crawl."));
+      }
+      console.log(`${ok("Written")} → ${out}`);
+      return;
+    }
+    case "list": {
+      if (!existsSync(cfg.snapRoot)) return console.log("No snapshots yet.");
+      for (const d of readdirSync(cfg.snapRoot, { withFileTypes: true })
+        .filter((e) => e.isDirectory()).map((e) => e.name).sort()) {
+        const m = readIf(join(cfg.snapRoot, d, "manifest.json"));
+        const skipped = m?.skipped?.map((s) => s.source).join(", ");
+        console.log(
+          `  ${d.padEnd(34)} ${m ? `${m.window.from} .. ${m.window.until}` : ""}` +
+          (skipped ? paint(`   missing: ${skipped}`, C.dim) : ""),
+        );
+      }
+      return;
+    }
+    case "doctor": return void (await doctor(cfg));
+    default:
+      console.log(USAGE);
+  }
+}
+
+main().catch((err) => {
+  console.error(bad(`\n${err.stack || err.message || err}\n`));
+  process.exit(1);
+});
