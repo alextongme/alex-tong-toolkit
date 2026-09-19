@@ -37,15 +37,15 @@ const BANNED_FILENAMES = [
 // itself, which defines the patterns as regexes, must be exempt from its own
 // literal-string matches).
 // ############################################################################
-// DO NOT ADD EMPLOYER-, CLIENT-, OR PERSON-SPECIFIC PATTERNS TO THIS FILE.
+// DO NOT ADD ORGANISATION- OR PERSON-SPECIFIC PATTERNS TO THIS FILE.
 //
 // This file is committed. A blocklist of confidential identifiers, published
 // in order to block them, discloses exactly what it was written to protect —
 // the blocklist becomes the leak. This is not hypothetical: an earlier
 // revision of this scanner did exactly that.
 //
-// Identifying patterns — former-employer tool names, client names, internal
-// repo names, personal emails, hostnames, private domains — belong in
+// Identifying patterns — organisation names, internal tool and repo names,
+// personal emails, hostnames, private domains — belong in
 // `.safety-scan-local.txt`, which is gitignored and never leaves the machine.
 // loadLocalPatterns() reads it and applies those patterns on top of the
 // generic ones below, so enforcement is identical without the disclosure.
@@ -112,7 +112,7 @@ const HARD_BLOCK = [
 
 // Warning patterns — surface for human review but do NOT fail the build.
 // Same rule as HARD_BLOCK: generic patterns only. Anything that names a
-// specific employer, client, or person goes in `.safety-scan-local.txt`.
+// specific organisation or person goes in `.safety-scan-local.txt`.
 const WARN = [
   {
     id: "WARN-CONFIDENTIAL",

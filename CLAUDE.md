@@ -9,11 +9,10 @@ Public GitHub home for the Claude Code skills featured in Alex Tong's YouTube vi
 This repo is **public**. Anything that reaches git history is effectively permanent: a `git reset` does not scrub GitHub's caches or forks. Prevention is the only real defense, and `scripts/scan-safety.js` enforces the machine-checkable subset.
 
 1. **No secrets, credentials, or personal identifiers.** No API keys or tokens of any format, no files whose *name* implies a credential (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `credentials.json`), no hard-coded home paths (`/Users/<name>`, `/home/<name>`; use `$HOME` or `~`), no personal emails or machine hostnames. If a secret ever lands, rotate it first and worry about history second.
-2. **No former-employer material.** No internal tool, service, repo, ticket, channel, or colleague names; no internal metrics; not the employer's name itself, anywhere, including commit messages and branch names. Techniques carry over, provenance does not. If you cannot describe an approach without gesturing at where it came from, leave it out and ask Alex. The enforcement list for this rule is deliberately **not** in this repo; it lives in the gitignored `.safety-scan-local.txt`. Never move those patterns into `scan-safety.js`.
-3. **No client-confidential material.** Client work lives in its own private repos and is never named here.
-4. **Nothing here phones home.** A skill or script runs on other people's machines. No network calls, no telemetry, no uploads. Local files it writes are `chmod 600`. Hooks never block Claude Code on failure.
-5. **No dangerous file-system operations.** No `rm -rf`, no `sudo`, no writes outside `~/.claude/` or the current working directory.
-6. **No content that targets or embarrasses a named real person.**
+2. **Nothing confidential, from anywhere.** No internal tool, service, repo, ticket, channel, or colleague names, and no internal metrics, from any organisation. Work done for someone else lives in its own private repo and is never named here. **Techniques carry over; provenance does not.** If an approach cannot be described without gesturing at where it came from, leave it out and ask Alex. The enforcement list is deliberately **not** in this repo; it lives in the gitignored `.safety-scan-local.txt`, and those patterns never move into `scan-safety.js`.
+3. **Nothing here phones home.** A skill or script runs on other people's machines. No network calls, no telemetry, no uploads. Local files it writes are `chmod 600`. Hooks never block Claude Code on failure.
+4. **No dangerous file-system operations.** No `rm -rf`, no `sudo`, no writes outside `~/.claude/` or the current working directory.
+5. **No content that targets or embarrasses a named real person.**
 
 **Enforcement.** Opt in locally with `git config core.hooksPath .githooks`, which runs the scanner on staged files before every commit. The `Safety scan` GitHub workflow runs it on every push and pull request. On a fresh machine, recreate `.safety-scan-local.txt` (one literal per line, `#` comments) before committing anything.
 
