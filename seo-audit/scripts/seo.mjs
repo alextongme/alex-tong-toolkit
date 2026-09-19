@@ -571,6 +571,54 @@ function jsonLdBlocks(html) {
   return out;
 }
 
+// Walk a parsed JSON-LD tree, not just its top level.
+//
+// Both of the readers below used to look only at the root of each block, and on
+// a real site that is where the answer usually is not. Checked live on
+// a typical blog 2026-09-19: every blog post declares `BlogPosting` at the
+// root and nests `Person` (author), `Organization` (publisher) and
+// `ImageObject` inside it. The crawler reported `BlogPosting` and nothing else,
+// so a pre-call hand-check that found the nested entities looked like it
+// disagreed with the tool — the tool was simply not looking.
+//
+// This matters most for `sameAs`, which is the single most load-bearing field
+// in the entity graph and which is conventionally attached to the nested
+// `author` or `publisher` rather than to the root. A plugin whose whole subject
+// is "can an assistant tell who this is" must not miss the field that says so.
+function walkJsonLd(node, visit, seen = new Set()) {
+  if (!node || typeof node !== "object") return;
+  // Cheap cycle guard: JSON.parse cannot produce one, but @graph documents get
+  // re-entered through shared references often enough to be worth the set.
+  if (seen.has(node)) return;
+  seen.add(node);
+  if (Array.isArray(node)) {
+    for (const v of node) walkJsonLd(v, visit, seen);
+    return;
+  }
+  visit(node);
+  for (const v of Object.values(node)) walkJsonLd(v, visit, seen);
+}
+
+function jsonLdTypesDeep(blocks) {
+  const types = new Set();
+  walkJsonLd(blocks, (node) => {
+    const t = node["@type"];
+    if (!t) return;
+    for (const one of Array.isArray(t) ? t : [t]) if (one) types.add(String(one));
+  });
+  return [...types].sort();
+}
+
+function jsonLdSameAsDeep(blocks) {
+  const urls = new Set();
+  walkJsonLd(blocks, (node) => {
+    const s = node.sameAs;
+    if (!s) return;
+    for (const one of Array.isArray(s) ? s : [s]) if (one) urls.add(String(one));
+  });
+  return [...urls].sort();
+}
+
 // One spelling per page, so the inbound-link graph does not treat `/about`,
 // `/about/` and `/about#team` as three different pages.
 function normalizeLink(href, from) {
@@ -642,7 +690,20 @@ async function crawlPage(url, base, site = base) {
     return { url, error: String(err.message || err), fetchClass: "error" };
   }
   const ms = Date.now() - started;
-  const html = await res.text();
+  // Reading the body is a second place the network can fail, and it used to sit
+  // outside every try in this function. undici throws a bare `TypeError:
+  // terminated` when a response body stream dies mid-read — a routine flake on
+  // a big site — and that exception escaped crawlPage, rejected the whole
+  // Promise batch in crawlSite, and threw away every page already fetched. One
+  // dropped connection at page 84 of 133 lost the other 83 and wrote no
+  // onpage.json at all. A page whose body cannot be read is an UNKNOWN, exactly
+  // like a page whose headers could not be fetched.
+  let html;
+  try {
+    html = await res.text();
+  } catch (err) {
+    return { url, finalUrl, status: res.status, error: `body: ${String(err.message || err)}`, fetchClass: "error" };
+  }
   const fetchClass = classifyResponse(res, html.slice(0, 2000));
 
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
@@ -718,10 +779,14 @@ async function crawlPage(url, base, site = base) {
     internalTargets,
     externalLinks: external.length,
     externalHosts,
-    jsonLdTypes: ld.map((x) => x["@type"]).flat().filter(Boolean),
+    jsonLdTypes: jsonLdTypesDeep(ld),
+    // Only the types declared at the top of a block, kept separately because
+    // "this page is a BlogPosting" and "a Person appears somewhere inside it"
+    // are different statements and a report should not conflate them.
+    jsonLdTopTypes: ld.map((x) => x["@type"]).flat().filter(Boolean),
     // sameAs is the entity graph; it is the single most load-bearing field in
     // the "is this the right Alex Tong" question, so it is captured verbatim.
-    sameAs: ld.flatMap((x) => (Array.isArray(x.sameAs) ? x.sameAs : x.sameAs ? [x.sameAs] : [])).sort(),
+    sameAs: jsonLdSameAsDeep(ld),
     // Candidate snippets, never a verdict: the reporter reads them before
     // quoting one. Empty on almost every page, and that is the expected case.
     assistantAddressed,
@@ -862,10 +927,12 @@ async function checkAiCrawlers(base, robotsText, robotsStatus) {
     bots[c.name] = { ...robotsVerdict(groups, c.name), operator: c.operator, purpose: c.purpose };
   }
 
-  const probes = [];
-  for (const name of ["GPTBot", "ClaudeBot", "PerplexityBot"]) {
-    probes.push(await probeAiCrawler(base, name));
-  }
+  // Three independent probes and one llms.txt check, all at once. They were
+  // sequential and none of them depends on another.
+  const [probes, llmsTxt] = await Promise.all([
+    Promise.all(["GPTBot", "ClaudeBot", "PerplexityBot"].map((n) => probeAiCrawler(base, n))),
+    checkLlmsTxt(base),
+  ]);
 
   const blocked = Object.entries(bots).filter(([, v]) => v.state === "blocked").map(([k]) => k);
   // The verdict is robots.txt's alone. A probe that was refused is an UNKNOWN
@@ -879,7 +946,45 @@ async function checkAiCrawlers(base, robotsText, robotsStatus) {
     probeUnknown,
     bots,
     probes,
+    llmsTxt,
   };
+}
+
+// Does the site serve a real `llms.txt`?
+//
+// It is reported, never graded, and never turned into a finding on its own. No
+// major assistant has committed to reading it, so "missing" is not a defect and
+// saying otherwise would be selling a fix for a problem nobody has. It is here
+// because its presence is a fact about the site an owner should know, and
+// because a site that has one usually got it from a previous SEO engagement —
+// which is worth asking about.
+//
+// The control matters more than the check. A 200 proves nothing on its own:
+// Wix and WordPress both serve valid-looking pages at invented paths, so a
+// naive fetch reports `llms.txt` on every site that has a catch-all. A known-
+// absent path is fetched alongside it, and the file only counts as real if the
+// control 404s and the content type is actually text.
+async function checkLlmsTxt(base) {
+  const control = `/zzz-seo-audit-control-${Date.now().toString(36)}`;
+  const [hit, miss] = await Promise.all([
+    fetchWithRetry(`${base}/llms.txt`, {}, 1).catch(() => null),
+    fetchWithRetry(`${base}${control}`, {}, 1).catch(() => null),
+  ]);
+  if (!hit) return { state: "unknown", note: "llms.txt could not be fetched" };
+  const type = hit.headers.get("content-type") || "";
+  if (!hit.ok) return { state: "absent", status: hit.status };
+  if (miss && miss.ok) {
+    return {
+      state: "unknown",
+      status: hit.status,
+      note: `control path ${control} also returned ${miss.status}; this host answers 200 at invented paths, so a 200 here proves nothing`,
+    };
+  }
+  if (!/text\/plain|text\/markdown/i.test(type)) {
+    return { state: "unknown", status: hit.status, contentType: type, note: "served, but not as text" };
+  }
+  const body = await hit.text().catch(() => "");
+  return { state: "present", status: hit.status, contentType: type, bytes: body.length };
 }
 
 function reportAiCrawlers(ai) {
@@ -907,6 +1012,16 @@ function reportAiCrawlers(ai) {
       "  An UNKNOWN here is not a blocked crawler. This machine is not on any of these\n" +
       "  operators' published address lists, so a refusal may be aimed at impersonators.\n" +
       "  Only the robots.txt table above states whether a bot is blocked.", C.dim));
+  }
+  if (ai.llmsTxt) {
+    const l = ai.llmsTxt;
+    const line = l.state === "present" ? ok(`present (${l.bytes} bytes, ${l.contentType})`)
+      : l.state === "absent" ? paint(`absent (HTTP ${l.status})`, C.dim)
+      : warn(`UNKNOWN — ${l.note}`);
+    console.log(`\n  ${"llms.txt".padEnd(20)} ${line}`);
+    console.log(paint(
+      "  Reported, not graded. No major assistant has committed to reading llms.txt,\n" +
+      "  so its absence is not a finding and nobody should be sold a fix for it.", C.dim));
   }
   if (ai.verdict === "blocked") {
     console.log(bad(`  → robots.txt blocks ${ai.blocked.join(", ")}.`));
@@ -1056,7 +1171,13 @@ async function fetchSitemapUrls(base, opts) {
   return (await discoverSitemap(base, opts)).urls;
 }
 
-async function crawlSite(base, { concurrency = 4, site = base } = {}) {
+// concurrency 8 is a deliberate ceiling, not a tuning knob left at its maximum.
+// This crawler identifies as an unverified bot against sites it does not own,
+// and a crawl that trips rate limiting produces `rate_limited` pages, which are
+// UNKNOWNs that lower coverage — going faster can literally measure less. 8
+// halves the wall-clock of a 133-page run against a CDN-backed host without
+// getting challenged. Lower it with --concurrency on a small or strict origin.
+async function crawlSite(base, { concurrency = 8, site = base } = {}) {
   // robots.txt first. It was already being fetched — just after the crawl that
   // needed it — and it is where a site declares where its real sitemap lives.
   const robotsRes = await fetchWithRetry(`${base}/robots.txt`).catch(() => null);
@@ -1068,12 +1189,35 @@ async function crawlSite(base, { concurrency = 4, site = base } = {}) {
   // production one, so rewrite sitemap hosts onto whatever base we were given.
   const urls = sitemapUrls.map((u) => (base === site ? u : u.replace(site, base)));
 
-  const pages = [];
-  for (let i = 0; i < urls.length; i += concurrency) {
-    const batch = urls.slice(i, i + concurrency);
-    pages.push(...(await Promise.all(batch.map((u) => crawlPage(u, base, site)))));
-    process.stdout.write(`\r  crawled ${Math.min(i + concurrency, urls.length)}/${urls.length}`);
-  }
+  // A worker pool, not lock-step batches. The old loop waited for all four
+  // fetches in a batch before starting the next four, so every batch cost the
+  // slowest page in it — on a site with a few slow pages that idles most of the
+  // workers most of the time. Workers pull from a shared cursor instead, so a
+  // slow page blocks one worker rather than the whole crawl.
+  //
+  // Each result is also individually guarded. crawlPage is written not to
+  // throw, but "written not to throw" is what was believed before a body-stream
+  // error took out a 133-page run. An unexpected throw must cost one page, not
+  // the snapshot.
+  const pages = new Array(urls.length);
+  let cursor = 0;
+  let done = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= urls.length) return;
+      try {
+        pages[i] = await crawlPage(urls[i], base, site);
+      } catch (err) {
+        pages[i] = { url: urls[i], error: `crawl: ${String(err.message || err)}`, fetchClass: "error" };
+      }
+      done += 1;
+      if (done % 4 === 0 || done === urls.length) {
+        process.stdout.write(`\r  crawled ${done}/${urls.length}`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, worker));
   process.stdout.write("\n");
 
   const aiCrawlers = await checkAiCrawlers(base, robots, robotsRes?.status ?? null);
@@ -1277,6 +1421,18 @@ async function captureBing(site) {
       out[name] = { error: String(err.message || err) };
     }
   }
+  // Which of the four endpoints actually answered. Writing a file is not the
+  // same as capturing data: on 2026-09-19 all four returned
+  // `{ErrorCode: 14, Message: "ERROR!!! NotAuthorized"}`, bing.json was written,
+  // and the run printed a green "bing captured" — the plugin committing its own
+  // "presence is not liveness" error, on camera, one line below a canary that
+  // had correctly called Bing UNKNOWN.
+  out.endpoints = Object.fromEntries(
+    Object.entries(out)
+      .filter(([k]) => k !== "endpoints")
+      .map(([k, v]) => [k, v && (v.ErrorCode || v.error) ? String(v.Message || v.error) : "ok"]),
+  );
+  out.failed = Object.entries(out.endpoints).filter(([, v]) => v !== "ok").map(([k]) => k);
   return out;
 }
 
@@ -1416,7 +1572,7 @@ async function capture(cfg, flags) {
   if (!skip.includes("onpage")) {
     console.log(`  onpage     crawling ${base}`);
     try {
-      const crawl = await crawlSite(base, { site });
+      const crawl = await crawlSite(base, { site, ...concurrencyOf(flags) });
       writeJSON(join(dir, "onpage.json"), crawl);
       manifest.captured.push("onpage.json");
       manifest.coverage = crawl.coverage;
@@ -1452,16 +1608,35 @@ async function capture(cfg, flags) {
       });
     }
     console.log(`  psi        ${targets.length} url(s) x ${strategies.length} strateg${strategies.length > 1 ? "ies" : "y"}`);
-    const runs = [];
-    for (const url of targets) {
-      for (const strategy of strategies) {
+    // Each PSI call is a real Lighthouse run on Google's side and takes 20-30
+    // seconds, so the wall-clock here is dominated by waiting, not by work. Run
+    // them in a small pool instead of strictly one after another: a keyed
+    // project gets 240 queries/minute, and two concurrent runs are nowhere near
+    // it. Keyless stays at one in flight, because there the throttling *is* the
+    // constraint and going wider collects gaps faster, not data faster.
+    //
+    // The stagger also stops being paid after the final run. It used to sleep
+    // once more on the way out, which bought nothing and simply made every
+    // snapshot longer.
+    const jobs = targets.flatMap((url) => strategies.map((strategy) => ({ url, strategy })));
+    const psiPool = hasKey ? 2 : 1;
+    const runs = new Array(jobs.length);
+    let psiCursor = 0;
+    const psiWorker = async (slot) => {
+      // Offset each worker's start so two Lighthouse runs do not land on the
+      // same instant; after that the pool self-staggers naturally.
+      if (slot) await sleep(hasKey ? 1200 : 6000);
+      for (;;) {
+        const i = psiCursor++;
+        if (i >= jobs.length) return;
+        const { url, strategy } = jobs[i];
         const r = await runPsi(url, strategy);
-        runs.push(r);
+        runs[i] = r;
         const s = r.scores ? `perf ${r.scores.performance} seo ${r.scores.seo}` : bad(r.error);
         console.log(`    ${strategy.padEnd(8)} ${(url.replace(site, "") || "/").padEnd(34)} ${s}`);
-        await sleep(hasKey ? 1200 : 6000);
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(psiPool, jobs.length) }, (_, slot) => psiWorker(slot)));
     writeJSON(join(dir, "psi", "runs.json"), { capturedAt: new Date().toISOString(), runs });
     manifest.captured.push("psi/runs.json");
   } else manifest.skipped.push({ source: "psi", reason: "--skip" });
@@ -1470,9 +1645,24 @@ async function capture(cfg, flags) {
   if (!skip.includes("bing") && cfg.bing.enabled !== false) {
     const bing = await captureBing(site);
     writeJSON(join(dir, "bing.json"), bing);
-    if (bing.skipped) console.log(warn(`  bing       skipped (${bing.skipped})`));
-    else console.log(ok("  bing       captured"));
-    manifest.captured.push("bing.json");
+    if (bing.skipped) {
+      console.log(warn(`  bing       skipped (${bing.skipped})`));
+      manifest.skipped.push({ source: "bing", reason: bing.skipped });
+    } else if (bing.failed?.length === 4) {
+      // Every endpoint refused. The file exists and holds nothing usable, so it
+      // is a gap in coverage, never a zero — and the manifest has to say so,
+      // because a later compare reads the manifest, not the console.
+      const why = bing.endpoints.rankAndTraffic;
+      console.log(warn(`  bing       unavailable — all 4 endpoints refused (${why})`));
+      manifest.skipped.push({ source: "bing", reason: `all 4 endpoints refused: ${why}` });
+      manifest.captured.push("bing.json");
+    } else if (bing.failed?.length) {
+      console.log(warn(`  bing       partial — ${4 - bing.failed.length}/4 endpoints (failed: ${bing.failed.join(", ")})`));
+      manifest.captured.push("bing.json");
+    } else {
+      console.log(ok("  bing       captured (4/4 endpoints)"));
+      manifest.captured.push("bing.json");
+    }
   }
 
   writeJSON(join(dir, "manifest.json"), manifest);
@@ -2127,6 +2317,14 @@ async function doctor(cfg) {
   console.log(paint("\n  Presence is not liveness: every key above was exercised, not just found.\n", C.dim));
 }
 
+// Parsed once, here, so an out-of-range value cannot quietly become NaN and
+// collapse the worker pool to zero workers — which hangs rather than errors.
+function concurrencyOf(flags) {
+  const n = Number(flags.concurrency);
+  if (!Number.isFinite(n) || n < 1) return {};
+  return { concurrency: Math.min(Math.floor(n), 32) };
+}
+
 // ---------------------------------------------------------------------- main
 
 const USAGE = `
@@ -2145,6 +2343,8 @@ seo.mjs — freeze a site's search signals into a dated folder you can diff late
   --site <url>      override the configured site
   --here            init: write ${CONFIG_NAME} in this directory, not ~/seo-audits/<host>/
   --out <path>      write machine-readable output (robots, canary, onpage)
+  --concurrency <n> parallel page fetches while crawling (default 8)
+  --help            print this and do nothing else
 
 No code project is required. A URL is enough: "init --site <url>" from anywhere
 sets up a folder under ~/seo-audits/<host>/ and every command finds it.
@@ -2158,6 +2358,15 @@ Examples
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const flags = parseFlags(rest);
+
+  // `--help` used to fall through to the command itself, so `onpage --help`
+  // crawled the whole site instead of explaining it. A help flag must never do
+  // work, least of all network work against somebody else's server.
+  if (flags.help || flags.h || cmd === "help" || cmd === "--help" || cmd === "-h") {
+    console.log(USAGE);
+    return;
+  }
+
   const cfg = loadConfig(flags);
 
   switch (cmd) {
@@ -2175,7 +2384,7 @@ async function main() {
       const base = flags.base && flags.base !== true ? flags.base : requireSite(cfg);
       const out = flags.out && flags.out !== true ? flags.out : join(cfg.snapRoot, "onpage-adhoc.json");
       console.log(`Crawling ${base}`);
-      const crawl = await crawlSite(base, { site: site || base });
+      const crawl = await crawlSite(base, { site: site || base, ...concurrencyOf(flags) });
       writeJSON(out, crawl);
       reportAiCrawlers(crawl.aiCrawlers);
       console.log(
