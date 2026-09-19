@@ -215,6 +215,11 @@ function writeJSON(path, value) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// padEnd on a coloured string pads the escape bytes too, so a column lines up
+// only while every label happens to be the same length. Pad on what is visible.
+const plain = (s) => String(s).replace(/\x1b\[[0-9;]*m/g, "");
+const padVisible = (s, w) => s + " ".repeat(Math.max(0, w - plain(s).length));
+
 // API keys live in the macOS keychain, never in a file, and never on a command
 // line where they would land in shell history. The value is returned to the
 // caller and never logged; `doctor` only ever reports whether it is set.
@@ -813,8 +818,13 @@ const AI_CRAWLERS = [
 
 // robots.txt groups: one or more consecutive User-agent lines, then the rules
 // that apply to all of them. A blank line ends the group. Comments and unknown
-// directives (Crawl-delay, Sitemap, Host) are ignored rather than dropped into
-// the rule list, because only Allow/Disallow decide access.
+// directives (Sitemap, Host) are ignored rather than dropped into the rule
+// list, because only Allow/Disallow decide access.
+//
+// Crawl-delay is the exception: it decides nothing about access, but it is the
+// site telling us how fast it is willing to be read, and this crawler arrives
+// as an unverified bot on hosting the owner is often paying $5/month for. It
+// is kept on the group so crawlSite can obey it.
 function parseRobots(text) {
   const groups = [];
   let current = null;
@@ -836,9 +846,26 @@ function parseRobots(text) {
       if (!current) continue; // a rule with no preceding User-agent binds to nothing
       current.rules.push({ type: field, path: value });
       sawRule = true;
+    } else if (field === "crawl-delay") {
+      if (!current) continue;
+      const n = Number(value);
+      if (Number.isFinite(n) && n > 0) current.crawlDelay = n;
+      // Not a rule: a Crawl-delay between two Allow lines must not split the
+      // group, so `sawRule` is deliberately left alone.
     }
   }
   return groups;
+}
+
+// What delay does this site ask of *us*? This crawler is unverified and has no
+// group of its own anywhere, so in practice this is always the `*` group — but
+// look up the real UA first, because a site that has bothered to name us is
+// the one whose answer matters most.
+function crawlDelayFor(groups, ua) {
+  const name = ua.toLowerCase();
+  const own = groups.find((g) => g.agents.some((a) => name.includes(a) && a !== "*"));
+  const wild = groups.find((g) => g.agents.includes("*"));
+  return (own || wild)?.crawlDelay ?? null;
 }
 
 // Most-specific-group-wins: a bot obeys its own group if it has one and ignores
@@ -856,9 +883,20 @@ function robotsVerdict(groups, botName) {
   const allows = group.rules.filter((r) => r.type === "allow");
   if (!disallows.length) return { state: "allowed", via };
   if (disallows.some((r) => r.path === "/")) {
-    // An Allow alongside a root Disallow carves out a subtree; the site is not
-    // fully closed, and calling it "blocked" would overstate it.
-    return { state: allows.length ? "partial" : "blocked", via };
+    // Two shapes share the name `partial` and they are inverses of each other,
+    // so they must not share a rendering.
+    //
+    //   Disallow: /wp-admin/        <- open site, one room locked
+    //   Disallow: /  + Allow: /x/   <- locked site, one room open
+    //
+    // Both are "not fully blocked". Only the first is anything like a yes. A
+    // publisher writing `Allow: /sponsored/` above `Disallow: /` has closed the
+    // entire editorial site to that bot, and reporting it as a yes with a
+    // footnote is the same lie as reporting a dead API key as a zero — the
+    // exact trap this tool exists to refuse. `closed` marks which shape it is
+    // and every caller reads it before choosing a word.
+    if (!allows.length) return { state: "blocked", via };
+    return { state: "partial", via, closed: true, allowPaths: allows.map((r) => r.path) };
   }
   return { state: "partial", via, paths: disallows.map((r) => r.path) };
 }
@@ -935,14 +973,21 @@ async function checkAiCrawlers(base, robotsText, robotsStatus) {
   ]);
 
   const blocked = Object.entries(bots).filter(([, v]) => v.state === "blocked").map(([k]) => k);
+  // Kept separate from `blocked` so a snapshot taken before this existed still
+  // diffs cleanly, but it counts toward the verdict: a bot allowed only into
+  // /sponsored/ cannot read the site any more than a blocked one can.
+  const closedExcept = Object.entries(bots)
+    .filter(([, v]) => v.closed)
+    .map(([k, v]) => `${k} (except ${v.allowPaths.join(" ")})`);
   // The verdict is robots.txt's alone. A probe that was refused is an UNKNOWN
   // about an instrument, and an unknown never hardens into a finding.
   const probeUnknown = probes.filter((p) => p.state !== "allowed").map((p) => p.bot);
   return {
     robotsTxt: "read",
-    verdict: blocked.length ? "blocked" : "allowed",
+    verdict: blocked.length || closedExcept.length ? "blocked" : "allowed",
     verdictFrom: "robots.txt",
     blocked,
+    closedExcept,
     probeUnknown,
     bots,
     probes,
@@ -996,8 +1041,12 @@ function reportAiCrawlers(ai) {
   }
   const label = { blocked: bad("blocked"), partial: warn("partial"), allowed: ok("allowed") };
   for (const [name, v] of Object.entries(ai.bots)) {
+    // A closed site with a carve-out gets the blocked colour and names the one
+    // open path. Reading `partial` in warning yellow next to a bot that cannot
+    // touch a single article is how a reader walks away with the wrong answer.
+    const state = v.closed ? bad(`blocked except ${v.allowPaths.join(" ")}`) : label[v.state];
     const paths = v.paths ? paint(`  ${v.paths.join(" ")}`, C.dim) : "";
-    console.log(`  ${name.padEnd(20)} ${label[v.state]}${paths}  ${paint(`(${v.operator} — ${v.purpose}; via ${v.via})`, C.dim)}`);
+    console.log(`  ${name.padEnd(20)} ${padVisible(state, 28)}${paths}  ${paint(`(${v.operator} — ${v.purpose}; via ${v.via})`, C.dim)}`);
   }
   if (ai.probes?.length) {
     console.log(paint("\n  Live probe — what the edge did with a request carrying each bot's name", C.dim));
@@ -1024,7 +1073,10 @@ function reportAiCrawlers(ai) {
       "  so its absence is not a finding and nobody should be sold a fix for it.", C.dim));
   }
   if (ai.verdict === "blocked") {
-    console.log(bad(`  → robots.txt blocks ${ai.blocked.join(", ")}.`));
+    if (ai.blocked?.length) console.log(bad(`  → robots.txt blocks ${ai.blocked.join(", ")}.`));
+    if (ai.closedExcept?.length) {
+      console.log(bad(`  → robots.txt closes the whole site to ${ai.closedExcept.join(", ")}.`));
+    }
   }
 }
 
@@ -1177,7 +1229,19 @@ async function fetchSitemapUrls(base, opts) {
 // UNKNOWNs that lower coverage — going faster can literally measure less. 8
 // halves the wall-clock of a 133-page run against a CDN-backed host without
 // getting challenged. Lower it with --concurrency on a small or strict origin.
-async function crawlSite(base, { concurrency = 8, site = base } = {}) {
+// The crawler's own name, in one place, because the politeness check has to
+// look itself up in robots.txt the way any other bot would.
+const CRAWLER_UA = "seo-audit-snapshot/1 (+https://github.com/alextongme/alex-tong-toolkit)";
+
+// A ceiling, not a tuning knob. Nothing bounded the page list before this: the
+// sitemap said how many pages to fetch and the crawl fetched them, which on a
+// large site means tens of thousands of requests at somebody else's expense.
+// A site over the ceiling is not sampled silently — silence would hand back
+// `graded 100%` for 0.7% of a site, which is the wrong-list failure this tool
+// warns about everywhere else. It refuses and makes the sample a choice.
+const MAX_CRAWL_PAGES = 2000;
+
+async function crawlSite(base, { concurrency = 8, site = base, maxPages = MAX_CRAWL_PAGES } = {}) {
   // robots.txt first. It was already being fetched — just after the crawl that
   // needed it — and it is where a site declares where its real sitemap lives.
   const robotsRes = await fetchWithRetry(`${base}/robots.txt`).catch(() => null);
@@ -1187,7 +1251,34 @@ async function crawlSite(base, { concurrency = 8, site = base } = {}) {
   const sitemapUrls = sitemap.urls;
   // A snapshot taken against a local build must compare like-for-like with the
   // production one, so rewrite sitemap hosts onto whatever base we were given.
-  const urls = sitemapUrls.map((u) => (base === site ? u : u.replace(site, base)));
+  const all = sitemapUrls.map((u) => (base === site ? u : u.replace(site, base)));
+
+  if (all.length > maxPages && maxPages === MAX_CRAWL_PAGES) {
+    throw new Error(
+      `${all.length} URLs in the sitemap, above the ${maxPages}-page ceiling.\n` +
+      `  Re-run with --max-pages <n> to crawl a sample. The report will say it was a sample,\n` +
+      `  and its findings will describe those pages rather than the site.`
+    );
+  }
+  const sampled = all.length > maxPages;
+  const urls = sampled ? all.slice(0, maxPages) : all;
+  if (sampled) {
+    console.log(warn(`  sampling ${urls.length} of ${all.length} sitemap URLs — findings describe the sample, not the site`));
+  }
+
+  // How fast is this site willing to be read? Answering it costs one line and
+  // not answering it means arriving eight-wide at a one-person site on shared
+  // hosting. Sequential plus the declared pause is slow and is what was asked
+  // for; an audit that degrades the site it is measuring has no defence.
+  const crawlDelay = crawlDelayFor(parseRobots(robots || ""), CRAWLER_UA);
+  if (crawlDelay) {
+    const secs = crawlDelay * urls.length;
+    const eta = secs < 90 ? `${Math.round(secs)}s` : `${Math.ceil(secs / 60)} min`;
+    console.log(paint(
+      `  robots.txt asks for ${crawlDelay}s between requests — dropping to 1 at a time` +
+      ` (${urls.length} pages ≈ ${eta})`, C.dim));
+    concurrency = 1;
+  }
 
   // A worker pool, not lock-step batches. The old loop waited for all four
   // fetches in a batch before starting the next four, so every batch cost the
@@ -1211,6 +1302,9 @@ async function crawlSite(base, { concurrency = 8, site = base } = {}) {
       } catch (err) {
         pages[i] = { url: urls[i], error: `crawl: ${String(err.message || err)}`, fetchClass: "error" };
       }
+      // After the fetch, not before, so the pause is between requests rather
+      // than tacked onto the front of the run.
+      if (crawlDelay) await sleep(crawlDelay * 1000);
       done += 1;
       if (done % 4 === 0 || done === urls.length) {
         process.stdout.write(`\r  crawled ${done}/${urls.length}`);
@@ -1274,6 +1368,12 @@ async function crawlSite(base, { concurrency = 8, site = base } = {}) {
       children: sitemap.children,
       notFollowed: sitemap.notFollowed,
       tried: sitemap.tried,
+      // `total` is the list; `sitemapUrlCount` above is how much of it was
+      // crawled. When `sampled` is true those differ, coverage grades the
+      // sample, and no figure in this snapshot describes the whole site.
+      total: all.length,
+      sampled,
+      crawlDelay,
     },
     robots,
     // Whether the assistants are allowed in at all. Captured with every crawl so
@@ -1290,7 +1390,15 @@ async function crawlSite(base, { concurrency = 8, site = base } = {}) {
       pct: pages.length ? Math.round((fetched.length / pages.length) * 100) : 0,
       // 80+ is a graded report, 60-79 is provisional and must say so on every
       // figure, below 60 no summary verdict may be presented at all.
+      //
+      // `sampled` outranks all three, because the other grades answer "how
+      // much of the list did we read" and a sample fails the question before
+      // it: the list itself was cut down. 300 of 300 fetched really is 100%,
+      // and printing `graded 100%` for 5% of a site is the wrong-list failure
+      // this tool warns about everywhere else. Like `insufficient`, it carries
+      // no site-wide verdict.
       grade: !pages.length ? "none"
+        : sampled ? "sampled"
         : fetched.length / pages.length >= 0.8 ? "graded"
         : fetched.length / pages.length >= 0.6 ? "provisional"
         : "insufficient",
@@ -1576,9 +1684,14 @@ async function capture(cfg, flags) {
       writeJSON(join(dir, "onpage.json"), crawl);
       manifest.captured.push("onpage.json");
       manifest.coverage = crawl.coverage;
+      // On a sample the headline number is the one thing a reader takes away,
+      // so it says so here rather than only in a notice further up the scroll.
+      const scope = crawl.sitemap.sampled
+        ? warn(`sample of ${crawl.coverage.attempted} from ${crawl.sitemap.total} — no site-wide verdict`)
+        : `${crawl.coverage.pct}% of ${crawl.coverage.attempted} fetched, ${crawl.coverage.grade}`;
       console.log(
         `    ${ok(`${crawl.summary.pages} pages`)} ` +
-        `(${crawl.coverage.pct}% of ${crawl.coverage.attempted} fetched, ${crawl.coverage.grade}), ` +
+        `(${scope}), ` +
         `${crawl.summary.missingDescription} missing description, ` +
         `${crawl.summary.duplicateTitles.length} duplicate titles`,
       );
@@ -2049,13 +2162,16 @@ async function robots(cfg, flags) {
       // A `Disallow: /api/` is not an answer to "can this site be cited". Say
       // which paths are closed rather than downgrading the whole answer — an
       // audit that cries partial at every site teaches the reader to ignore it.
+      //
+      // But `Disallow: /` with a carve-out is the opposite case and the answer
+      // there is not yes. It is "only this one path", and it is closer to no.
       const label = entry.state === "blocked" ? bad("no")
-        : entry.state === "partial" ? ok("yes")
+        : entry.closed ? bad(`only ${entry.allowPaths.join(" ")}`)
         : ok("yes");
       const except = entry.state === "partial" && entry.paths?.length
         ? paint(`  except ${entry.paths.join(" ")}`, C.dim)
         : "";
-      console.log(`  ${label.padEnd(14)} ${claim} ${paint(`(${bot})`, C.dim)}${except}`);
+      console.log(`  ${padVisible(label, 18)} ${claim} ${paint(`(${bot})`, C.dim)}${except}`);
     }
   }
 
@@ -2320,9 +2436,15 @@ async function doctor(cfg) {
 // Parsed once, here, so an out-of-range value cannot quietly become NaN and
 // collapse the worker pool to zero workers — which hangs rather than errors.
 function concurrencyOf(flags) {
+  const out = {};
   const n = Number(flags.concurrency);
-  if (!Number.isFinite(n) || n < 1) return {};
-  return { concurrency: Math.min(Math.floor(n), 32) };
+  if (Number.isFinite(n) && n >= 1) out.concurrency = Math.min(Math.floor(n), 32);
+  // Passing --max-pages is what turns the refusal into a sample. There is no
+  // upper clamp: someone who types the number has said what they want, and
+  // the honest response is to do it and label the result a sample.
+  const m = Number(flags["max-pages"]);
+  if (Number.isFinite(m) && m >= 1) out.maxPages = Math.floor(m);
+  return out;
 }
 
 // ---------------------------------------------------------------------- main
@@ -2344,6 +2466,9 @@ seo.mjs — freeze a site's search signals into a dated folder you can diff late
   --here            init: write ${CONFIG_NAME} in this directory, not ~/seo-audits/<host>/
   --out <path>      write machine-readable output (robots, canary, onpage)
   --concurrency <n> parallel page fetches while crawling (default 8)
+  --max-pages <n>   crawl at most n sitemap URLs. Above 2000 the crawl refuses
+                    until you pass this, and a truncated crawl is reported as
+                    a sample of the site rather than as the site
   --help            print this and do nothing else
 
 No code project is required. A URL is enough: "init --site <url>" from anywhere

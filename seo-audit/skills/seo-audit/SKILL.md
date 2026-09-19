@@ -134,6 +134,15 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/seo.mjs" capture --label baseline
    answer is **UNKNOWN**, and you report it as what was sent and what came
    back, never as *"GPTBot cannot read this site."* On a site behind a WAF this
    is the difference between a true report and a confident wrong one.
+   🔴 **`partial` is two opposite things and the word for each is different.**
+   `Disallow: /wp-admin/` is an open site with one room locked, and the answer
+   there is *yes, except that path*. `Disallow: /` with `Allow: /sponsored/`
+   is a locked site with one room open, and the answer is **`only
+   /sponsored/`** — closer to no than to yes. The tool marks the second shape
+   `closed` and prints it in the blocked colour; carry that into the report and
+   never write the word "yes" for it. Reporting a bot as allowed when it may
+   read nothing but the advertorials is the same lie as reporting a dead API
+   key as a zero.
 2. **`canary`** — every source answers a known-answer question before any of
    its results are believed. Carry all four states into the report verbatim, and
    keep coverage separate from health when you do.
@@ -166,6 +175,18 @@ actually fetched. The crawl grades itself:
 | `graded` | 80%+ | Report the health figures as findings |
 | `provisional` | 60–79% | Every figure carries the word *provisional*, in the report, every time |
 | `insufficient` | under 60% | **No summary verdict at all.** Report the coverage failure as the finding and list the URLs that failed |
+| `sampled` | the list was cut before fetching | **No summary verdict at all**, whatever `pct` says. Name the sample size and the sitemap total in the first line of the report, and write every finding as a statement about those pages, never about the site |
+
+`sampled` outranks the other three and is not a percentage. A crawl that fetched
+300 of 300 URLs really is 100% — of a list that was truncated from 5,835. The
+other grades answer *how much of the list did we read*; `sampled` answers the
+question before it, and a sampled crawl reporting `graded 100%` is the
+wrong-list failure this skill warns about everywhere else.
+
+**Over 2,000 sitemap URLs the crawl refuses rather than sampling on its own.**
+`--max-pages <n>` is what turns the refusal into a sample, so the sample is
+always somebody's decision. This is not only a big-site rule: a twenty-year-old
+one-person blog measured on 2026-09-19 carried 53,628 URLs.
 
 **Then read `coverage.byClass` before you explain the number.** Every fetch is
 classed `ok`, `blocked`, `rate_limited` or `error`, and low coverage means
