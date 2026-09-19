@@ -1861,6 +1861,10 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(bad(`\n${err.stack || err.message || err}\n`));
+  // A stack trace is for a bug in this script. Most failures here are a wrong
+  // label or an unreachable site, and burying that under ten frames of node
+  // internals teaches the reader to stop reading the error.
+  console.error(bad(`\n${err.message || err}\n`));
+  if (process.env.SEO_DEBUG) console.error(err.stack);
   process.exit(1);
 });

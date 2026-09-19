@@ -173,6 +173,38 @@ Two things follow, and the second one matters more:
    is how a wrong constant travels.
 
 
+## `llms.txt` — the one check this plugin declines to make
+
+**Two credible sources disagree, so this is an adjudication rather than a rule inherited from
+either of them.**
+
+- **For:** Anthropic's own published SEO skill treats a missing `llms.txt` as a standard audit
+  finding, while hedging that it is *"a young convention, not a mandated standard."*
+- **Against:** the web-quality skills refuse it as a default — *"an experimental proposal, not a
+  cross-vendor discovery standard… never treat it as a ranking or citation factor. Add one only
+  when the user requests it or a documented consumer supports it; do not recommend it ahead of
+  crawlability, semantic HTML, accurate metadata, and useful content."*
+
+**This plugin takes the second position, and reports it as a decline rather than omitting it.**
+The file costs ten minutes and harms nothing, so the honest verdict is not *"don't"* — it is
+**"there is no consumer of it we can name, so this is not a finding, and here is what would change
+that."** Three reasons, in the order they matter:
+
+1. **No named consumer.** A check earns its place by naming who reads the thing. Nobody has
+   produced a documented, verifiable consumer of `llms.txt` in search or in an assistant's
+   retrieval path. Until someone does, recommending it is recommending faith.
+2. **It competes for the one action.** Every audit here ends with *one thing to do this week*. A
+   ten-minute task with no named consumer that displaces a crawlable H1 or a reachable page has
+   cost the owner real ground.
+3. **It is the shape of finding this plugin exists to refuse.** Easy, satisfying, ticks a box,
+   moves nothing measurable. The same argument retired `FAQPage` above.
+
+**What would flip it**, stated so the decline can be revisited on evidence rather than mood: a
+major assistant documenting that it reads `llms.txt`, or field evidence that a site's content
+reached an assistant through one. If the owner asks for the file, write it — it is their site, and
+the ask is reasonable. Just never bill it as a visibility win.
+
+
 ## 12. Images
 
 | # | Item | Status |
