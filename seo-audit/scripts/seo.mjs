@@ -579,12 +579,12 @@ function jsonLdBlocks(html) {
 // Walk a parsed JSON-LD tree, not just its top level.
 //
 // Both of the readers below used to look only at the root of each block, and on
-// a real site that is where the answer usually is not. Checked live on
-// a typical blog 2026-09-19: every blog post declares `BlogPosting` at the
-// root and nests `Person` (author), `Organization` (publisher) and
-// `ImageObject` inside it. The crawler reported `BlogPosting` and nothing else,
-// so a pre-call hand-check that found the nested entities looked like it
-// disagreed with the tool — the tool was simply not looking.
+// a real site that is where the answer usually is not. On a typical blog, every
+// post declares `BlogPosting` at the root and nests `Person` (author),
+// `Organization` (publisher) and `ImageObject` inside it. The crawler reported
+// `BlogPosting` and nothing else, so a pre-call hand-check that found the
+// nested entities looked like it disagreed with the tool — the tool was simply
+// not looking.
 //
 // This matters most for `sameAs`, which is the single most load-bearing field
 // in the entity graph and which is conventionally attached to the nested
