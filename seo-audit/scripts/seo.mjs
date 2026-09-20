@@ -755,8 +755,11 @@ async function crawlPage(url, base, site = base) {
     descriptionLength: (metaContent(html, "description") || "").length,
     robots: metaContent(html, "robots"),
     // The header form of the same directive. A page can be meta-indexable and
-    // header-noindexed at once, and the header wins — it was unreachable until
-    // this crawler started reading response headers at all.
+    // header-noindexed at once, and the more restrictive of the two is what
+    // applies — Google's rule is "in the case of conflicting robots rules, the
+    // more restrictive rule applies", not that the header outranks the tag. The
+    // header is not privileged, it is just the half nobody reads, because it was
+    // unreachable until this crawler started reading response headers at all.
     xRobotsTag: res.headers.get("x-robots-tag"),
     contentType: res.headers.get("content-type"),
     headers: Object.fromEntries(
@@ -1422,9 +1425,17 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages = MAX_CR
       // width available on the reader's device. Sixty is a display estimate
       // and the field name now says exactly that much and no more.
       titleOver60Chars: fetched.filter((p) => p.titleLength > 60).map((p) => ({ url: p.url, length: p.titleLength })),
-      descriptionOutOfRange: fetched
+      // Same status as the title count above, for the same reason: Google says
+      // there is no limit on a description's length and truncates to the device
+      // width. A display estimate, never a defect. The field name says that much
+      // and no more.
+      descriptionOutside70to160: fetched
         .filter((p) => p.description && (p.descriptionLength < 70 || p.descriptionLength > 160))
         .map((p) => ({ url: p.url, length: p.descriptionLength })),
+      // Recorded as structure, not as a defect. Google's starter guide lists it
+      // among the things not to focus on — "there's no ideal number or order of
+      // headings required" — so a page with two h1s is not a finding. The next
+      // line is: an h1 that exists and is empty is a real one, at any count.
       multipleH1: fetched.filter((p) => p.h1Count > 1).map((p) => p.url),
       emptyH1: fetched.filter((p) => p.h1Count > 0 && p.h1.every((h) => !h)).map((p) => p.url),
       totalImagesMissingAlt: fetched.reduce((n, p) => n + (p.imagesMissingAlt || 0), 0),

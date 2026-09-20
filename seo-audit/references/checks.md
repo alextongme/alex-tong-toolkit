@@ -40,27 +40,46 @@ is the same failure as an unavailable source reported as a zero.
 | # | Item | Status |
 |---|---|---|
 | 6 | Description present | `auto` |
-| 7 | Length 70–160 characters | `auto` |
+| 7 | Length recorded, as a **display note and not a defect** — see below | `auto` |
 | 8 | Unique across the site | `auto` |
 | 9 | Contains the keyword, a benefit, and a soft call to action | `keyword` + `manual` |
+
+> ⚠️ **And the 70–160 rule is the same folklore, so it gets the same treatment.** Google:
+> *"There's no limit on how long a meta description can be, but the snippet is truncated in Google
+> Search results as needed, typically to fit the device width."* Same mechanism as the title, same
+> verdict — the count is a display estimate, never a defect, and never a finding on its own. Google
+> also generates the snippet from page content most of the time, so a description outside the range
+> may never be shown at all. Verified against Google's snippet documentation, 2026-09-20.
 
 ## 3. Headings
 
 | # | Item | Status |
 |---|---|---|
-| 10 | Exactly one `<h1>` | `auto` |
+| 10 | `<h1>` count recorded — **a count, not a rule**, see below | `auto` |
 | 11 | The `<h1>` is in the **server** HTML, not injected by client-side JavaScript | `auto` — this is the one that catches animated headlines |
 | 12 | `<h1>` contains the primary keyword | `keyword` |
-| 13 | At least one `<h2>` | `auto` |
+| 13 | `<h2>` presence recorded — a structure note, not a requirement | `auto` |
 | 14 | Heading levels descend without skipping (no `<h2>` → `<h4>`) | `manual` |
 | 15 | Headings describe sections rather than decorating them | `manual` |
+
+> ⚠️ **There is no required number of headings, and this table used to imply one.** Google's own
+> SEO Starter Guide lists it under the things not to focus on: *"There's no ideal number or order of
+> headings required."* John Mueller has said a page can rank with one `<h1>`, many, or none. So the
+> counts above are **recorded and reported as structure**, never as defects, and a page with two
+> `<h1>`s is not a finding. Verified 2026-09-20.
+>
+> **Two rows in this section survive that, and they are the ones worth having.** Item 11 — is the
+> heading in the *server* HTML — is a real finding, because a heading that only exists after
+> JavaScript runs is invisible to an assistant's fetcher. And an `<h1>` that is present but **empty**
+> is a real defect at any count. Item 14's descending order is an **accessibility** rule, which is a
+> good reason to keep it; it is not a search one, and the report should not sell it as one.
 
 ## 4. Body content
 
 | # | Item | Status |
 |---|---|---|
 | 16 | Word count recorded | `auto` |
-| 17 | Not thin — under ~300 words on an indexable page is a flag, not a verdict | `auto` |
+| 17 | Word count recorded; under ~300 words on an indexable page is a flag to look at the page, **never a verdict** — Google: *"there's no magical word count target, minimum or maximum"* | `auto` |
 | 18 | Primary keyword appears in the first 100 words | `keyword` |
 | 19 | The question in the query is answered directly, near the top | `manual` |
 | 20 | Length within ~20% of the top-3 average for the target query | `keyword` + live SERP |
@@ -83,11 +102,21 @@ is the same failure as an unavailable source reported as a zero.
 | 27 | `<link rel="canonical">` present | `auto` |
 | 28 | Canonical is self-referential, absolute, and matches the final URL after redirects | `manual` — the canonical is captured, the comparison is not made |
 | 29 | `robots` meta tag read and reported | `auto` |
-| 30 | `X-Robots-Tag` response header read and reported | `auto` — and it overrides the meta tag when the two disagree |
+| 30 | `X-Robots-Tag` response header read and reported | `auto` — when it and the meta tag disagree, the **more restrictive** of the two applies |
 | 31 | No accidental `noindex` on a page meant to rank | `auto` |
 | 32 | Page returns 200 | `auto` — a **soft** 404 (200 with not-found content) is `manual` |
 | 33 | No redirect chain longer than one hop | `auto` — every hop is recorded, not just the fact of a redirect |
 | 34 | Google's chosen canonical matches yours | Search Console URL Inspection — needs setup |
+
+> ⚠️ **The header does not outrank the meta tag, and this file used to say it did.** Google's rule
+> is *"in the case of conflicting robots rules, the more restrictive rule applies"* — there is no
+> precedence order between the header form and the tag form. In the common case the outcome is the
+> same, which is why the error was invisible: a header `noindex` on a page whose meta tag says
+> nothing does take the page out of the index. But it takes it out by being **more restrictive**,
+> not by being the header — and read the other way round, the old wording gives the wrong answer,
+> because a meta `noindex` is not rescued by an `index` in the header. Report the pair and the
+> restrictive result, never a winner. Verified against Google's robots meta tag specification,
+> 2026-09-20.
 
 ## 7. Document head
 
@@ -115,7 +144,7 @@ is the same failure as an unavailable source reported as a zero.
 
 | # | Item | Status |
 |---|---|---|
-| 47 | 3–5 internal links out, in body content | `auto` (count) |
+| 47 | Internal links out, in body content — **counted, with no target number** | `auto` (count) |
 | 48 | Anchor text is descriptive, not "click here" | `manual` |
 | 49 | **Inbound internal links exist from a real page, not only the sitemap** | `auto` — the doorway check, counted per URL from the link graph |
 | 50 | The link runs both directions between the hub and the page | `manual` |
@@ -126,10 +155,17 @@ is the same failure as an unavailable source reported as a zero.
 
 | # | Item | Status |
 |---|---|---|
-| 53 | 2–3 outbound links to authoritative sources | `auto` (count) |
+| 53 | Outbound links to other hosts — **counted, with no target number** | `auto` (count) |
 | 54 | External hosts listed in the report | `auto` |
 | 55 | `rel="noopener"` on `target="_blank"` links | `manual` |
 | 56 | No links to dead or parked domains | `manual` |
+
+> ⚠️ **The "3–5 internal, 2–3 external" targets were invented, so they are gone.** No primary
+> source states a number; Google's Starter Guide says only *"link when you need to"* and recommends
+> no count in either direction. The counts stay because the **link graph** built from them is what
+> powers items 49 and 51 — inbound internal links and orphan pages — and those two are the most
+> valuable checks in this file. A page with two internal links out is not a finding. A page with
+> **zero inbound** links still is. Verified 2026-09-20.
 
 ## 11. Structured data
 
@@ -184,15 +220,23 @@ either of them.**
   cross-vendor discovery standard… never treat it as a ranking or citation factor. Add one only
   when the user requests it or a documented consumer supports it; do not recommend it ahead of
   crawlability, semantic HTML, accurate metadata, and useful content."*
+- **And it has since been settled by the one party that could settle it.** Google documents that
+  `llms.txt` neither helps nor hurts Search; Gary Illyes has said Google does not support it and is
+  not planning to, and drew the comparison himself — *"it's very easy to draw a parallel between
+  1990's keywords meta tag and llms.txt… we all know how useful the keywords meta tag became, very
+  fast."* Against that sits one piece of real counter-evidence: server logs showing OpenAI fetching
+  the file on some sites. **A crawler fetching a file is not an assistant retrieving from it**, and
+  closing that gap is exactly what the flip condition below asks for. Verified 2026-09-20.
 
 **This plugin takes the second position, and reports it as a decline rather than omitting it.**
 The file costs ten minutes and harms nothing, so the honest verdict is not *"don't"* — it is
 **"there is no consumer of it we can name, so this is not a finding, and here is what would change
 that."** Three reasons, in the order they matter:
 
-1. **No named consumer.** A check earns its place by naming who reads the thing. Nobody has
-   produced a documented, verifiable consumer of `llms.txt` in search or in an assistant's
-   retrieval path. Until someone does, recommending it is recommending faith.
+1. **No named consumer.** A check earns its place by naming who reads the thing. Google has now
+   explicitly said it is not one, and nobody has produced a documented, verifiable consumer in
+   search or in an assistant's retrieval path. Until someone does, recommending it is recommending
+   faith.
 2. **It competes for the one action.** Every audit here ends with *one thing to do this week*. A
    ten-minute task with no named consumer that displaces a crawlable H1 or a reachable page has
    cost the owner real ground.

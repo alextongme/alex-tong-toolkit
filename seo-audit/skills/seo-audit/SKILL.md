@@ -222,8 +222,11 @@ Order, top to bottom:
    they appear, because every other check can pass while they fail:
    **orphan pages** (`summary.orphanPages` — in the sitemap, linked from
    nowhere, which is the doorway pattern) and **header-level `noindex`**
-   (`summary.headerNoindex` — an `X-Robots-Tag` quietly overriding a page that
-   looks indexable in its meta tag).
+   (`summary.headerNoindex` — an `X-Robots-Tag` carrying a `noindex` on a page
+   that looks indexable in its meta tag). Say that the two disagree and that the
+   **more restrictive** directive is the one that applies; never say the header
+   overrides the tag, which is not Google's rule and is wrong in the other
+   direction.
 4. **What could not be checked, and why.** Anything needing a keyword→URL map,
    anything needing a credential, anything the crawler does not measure.
 5. **One action for this week.** Exactly one. The most valuable finding, the
