@@ -28,7 +28,7 @@ The status line is a script plus one block in `~/.claude/settings.json`, so it h
 
 ## Updates, changelog, questions
 
-This repo is the source of truth. [The AI Kitchen](https://alextong.me/kitchen) is where I post the one-line changelog for each version, answer questions, and review your CLAUDE.md if you post it.
+This repo is the source of truth. [The AI Kitchen](https://alextong.me/kitchen?utm_source=github&utm_medium=bio&utm_campaign=evergreen&utm_content=post-body) is where I post the one-line changelog for each version, answer questions, and review your CLAUDE.md if you post it.
 
 If one of these saved you time, a star tells me which ones to make more of.
 
