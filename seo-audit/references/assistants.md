@@ -4,11 +4,32 @@ Manual, on purpose. This is the one part of the audit a script should not do in
 v1: driving a logged-in assistant UI is exactly the automation that gets accounts
 flagged, and the APIs answer a different question than the products do.
 
-**Why per-engine, and why it cannot be collapsed into one score:** the same query
-returns largely non-overlapping citations across models. Visibility does not
-transfer between engines, so "are we visible in AI search" is four questions, not
-one. Answering it with a single number is the mistake this protocol exists to
-avoid.
+**Why per-engine, and why it cannot be collapsed into one score:** citations
+barely overlap between engines, so "are we visible in AI search" is four
+questions, not one. Answering it with a single number is the mistake this
+protocol exists to avoid. The measured figures, from the GEO survey at
+[arXiv 2607.14035](https://arxiv.org/html/2607.14035v1) §8.1:
+
+| Finding | Number |
+|---|---|
+| Domains cited by **both** Bing Chat and Perplexity, across 1,008 responses | **26%** (Li and Sinnamon, 2024) |
+| Domains cited by Google AI Overviews that **do not appear in the organic top 10** | **53%** (Kirsten et al., 2026) |
+| … absent from the top **100** | **27%** |
+| URL-level Jaccard similarity among Google organic, AIO and Gemini, over 11,500 queries | **0.11–0.18** (Grossman et al., 2026) |
+
+The survey's own conclusion: *"These results refute the notion of a global GEO
+ranking. Visibility is indexed by engine and surface. A site visible in the
+conventional SERP may be absent from AIO; a domain cited by Perplexity may never
+appear in ChatGPT."*
+
+🔴 **The overlap is low, not zero, and this file used to say zero.** The previous
+wording — *"the same query returns largely non-overlapping citations"* — was
+inherited from a synthesis blog with an anonymous byline, no linked sources, and
+a hedge (*"may produce"*) that got dropped on the way in. A quarter of domains
+being shared is a strong argument for testing four engines separately; *no*
+overlap would have been a different and false claim. **Report the number, not the
+adjective** — the protocol is easier to defend with it. Verified against the
+primary source, 2026-09-20.
 
 **Why manual beats an API here:** the API and the product are different systems.
 The product has its own retrieval layer, its own index, and its own recency
