@@ -32,6 +32,16 @@ This repo is the source of truth. [The AI Kitchen](https://alextong.me/kitchen) 
 
 If one of these saved you time, a star tells me which ones to make more of.
 
+## What these don't do
+
+Every skill here is read-only on purpose. `claude-md-audit` scores your file and names the exact
+lines to cut, and it never rewrites the file. That rule holds across the toolkit: these tools tell
+you what is wrong. They do not decide which of those findings actually matter for your situation,
+they do not do the work, and they cannot come back in thirty days to tell you what moved.
+
+That part is me. If you would rather have this done than diagnosed, that is the work I take on:
+[alextong.me](https://alextong.me/?utm_source=github&utm_medium=bio&utm_campaign=evergreen&utm_content=post-body).
+
 ## License
 
 MIT. See [LICENSE](./LICENSE).
