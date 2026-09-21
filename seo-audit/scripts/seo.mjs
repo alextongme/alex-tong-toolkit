@@ -614,6 +614,35 @@ function jsonLdTypesDeep(blocks) {
   return [...types].sort();
 }
 
+// `disambiguatingDescription` is schema.org's dedicated field for separating an
+// entity from OTHERS THAT SHARE ITS NAME, and on a personal site it is the one
+// lever that targets the same-name problem directly.
+//
+// Added 2026-09-21 after an AI-visibility probe of alextong.me measured the
+// failure this field exists for: asked "who is Alex Tong" with no other context,
+// 3 of the 4 assistants that answered described a DIFFERENT person, and one
+// never mentioned the site's owner at all. Add any credential to the same
+// question and all four resolve correctly. The entity was legible; the NAME was
+// not distinctive. `sameAs` does not help here — it consolidates the profiles
+// you own, and says nothing about the stranger you are confused with.
+//
+// ⚠️ Reported as a finding, never auto-filled. What belongs in it is a claim
+// about a real person, and a tool that guesses one is inventing a biography.
+function jsonLdDisambiguationDeep(blocks) {
+  const out = [];
+  walkJsonLd(blocks, (node) => {
+    const t = [node["@type"]].flat().filter(Boolean).map(String);
+    if (!t.some((x) => x === "Person" || x === "Organization" || x === "LocalBusiness")) return;
+    out.push({
+      type: t.join(","),
+      name: node.name ? String(node.name) : null,
+      hasDisambiguatingDescription: Boolean(node.disambiguatingDescription),
+      hasAlternateName: Boolean(node.alternateName),
+    });
+  });
+  return out;
+}
+
 function jsonLdSameAsDeep(blocks) {
   const urls = new Set();
   walkJsonLd(blocks, (node) => {
@@ -795,6 +824,9 @@ async function crawlPage(url, base, site = base) {
     // sameAs is the entity graph; it is the single most load-bearing field in
     // the "is this the right Alex Tong" question, so it is captured verbatim.
     sameAs: jsonLdSameAsDeep(ld),
+    // Named entities on the page and whether each one says which entity it is.
+    // The same-name problem is invisible to every other check in this file.
+    namedEntities: jsonLdDisambiguationDeep(ld),
     // Candidate snippets, never a verdict: the reporter reads them before
     // quoting one. Empty on almost every page, and that is the expected case.
     assistantAddressed,
@@ -1517,12 +1549,56 @@ async function runPsi(url, strategy) {
 
 // ---------------------------------------------------------------------- bing
 
+// Bing serialises dates as `/Date(1758240000000)/`. Printed raw in a report that
+// is meant to tell you how old a property is, that is useless.
+function bingDate(v) {
+  const m = /\/Date\((\d+)\)\//.exec(String(v || ""));
+  return m ? new Date(Number(m[1])).toISOString().slice(0, 10) : String(v ?? "unknown");
+}
+
 async function captureBing(site) {
   const key = secret("BING_WMT_API_KEY");
   if (!key) return { skipped: "BING_WMT_API_KEY not in the keychain or environment" };
   const base = "https://ssl.bing.com/webmaster/api.svc/json";
   const siteUrl = encodeURIComponent(site);
   const out = {};
+
+  // THE BINDING CONTROL, added 2026-09-21. Every Bing stats endpoint answers
+  // HTTP 200 with an empty `d: []` when the siteUrl is not a property this key
+  // can see — no error, no warning. So a typo'd domain, a property that was
+  // never verified, and a verified property with genuinely no data are
+  // IDENTICAL in the output. GetUserSites is the one call that must return
+  // something if the key is bound to anything at all, so it is what turns an
+  // empty series into evidence.
+  //
+  // Found on alextong.me: every endpoint returned "ok" with zero rows and the
+  // snapshot recorded `failed: []`. It took a sibling property in the same
+  // account returning 15 rows through the same code path to show the key and
+  // the transport were fine. That control now ships instead of being improvised.
+  //
+  // ⚠️ Bing registers properties WITH a trailing slash ("https://alextong.me/").
+  // Measured 2026-09-21: querying with and without the slash returns identical
+  // results, so this does NOT normalise the URL — it only reports the exact
+  // registered form, so nobody "fixes" a slash that was never the problem.
+  try {
+    const res = await fetchWithRetry(`${base}/GetUserSites?apikey=${key}`);
+    const sites = (await res.json())?.d;
+    if (Array.isArray(sites)) {
+      const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
+      const match = sites.find((x) => norm(x.Url) === norm(site));
+      out.binding = {
+        siteQueried: site,
+        verifiedProperties: sites.map((x) => x.Url),
+        matched: Boolean(match),
+        registeredAs: match?.Url ?? null,
+        isVerified: match?.IsVerified ?? null,
+      };
+    } else {
+      out.binding = { siteQueried: site, error: "GetUserSites returned no list" };
+    }
+  } catch (err) {
+    out.binding = { siteQueried: site, error: String(err.message || err) };
+  }
   // GetUrlTrafficInfo takes a `url` on TOP of `siteUrl` and 400s without it.
   // Its error says `SiteUriSchemeIsNotSupported`, which points at the scheme
   // rather than the missing argument, which is why this went unnoticed until
@@ -1532,6 +1608,12 @@ async function captureBing(site) {
     ["queryStats", "GetQueryStats", ""],
     ["pageStats", "GetPageStats", ""],
     ["urlCounts", "GetUrlTrafficInfo", `&url=${siteUrl}`],
+    // Sitemap submission + last-crawled date. Captured 2026-09-21 because it is
+    // the cheapest proxy for HOW OLD the property is, and property age is what
+    // decides whether an empty series means "broken" or "too new". Bing is not
+    // retroactive: a property verified two days ago reports zero for the same
+    // reason Search Console does, and no amount of debugging changes that.
+    ["feeds", "GetFeeds", ""],
   ]) {
     try {
       const res = await fetchWithRetry(`${base}/${path}?apikey=${key}&siteUrl=${siteUrl}${extra}`);
@@ -1548,10 +1630,35 @@ async function captureBing(site) {
   // had correctly called Bing UNKNOWN.
   out.endpoints = Object.fromEntries(
     Object.entries(out)
-      .filter(([k]) => k !== "endpoints")
+      .filter(([k]) => k !== "endpoints" && k !== "binding")
       .map(([k, v]) => [k, v && (v.ErrorCode || v.error) ? String(v.Message || v.error) : "ok"]),
   );
   out.failed = Object.entries(out.endpoints).filter(([, v]) => v !== "ok").map(([k]) => k);
+
+  // "ok" MEANT "the request did not error", which is not the same as "we got
+  // data", and the difference is the whole reason this file exists. Separated
+  // 2026-09-21 after a snapshot recorded `failed: []` for a run in which every
+  // series came back empty. A reader skimming that file would reasonably
+  // conclude Bing had been measured and the answer was zero. It had not been.
+  const series = ["rankAndTraffic", "queryStats", "pageStats"];
+  out.empty = series.filter((k) => Array.isArray(out[k]?.d) && out[k].d.length === 0);
+  out.dataStatus =
+    out.failed.length ? "error"
+    : out.binding && out.binding.matched === false ? "not-a-verified-property"
+    : out.empty.length === series.length ? "authorised-but-no-data"
+    : "ok";
+  // A one-line verdict so nobody has to reconstruct the above from raw JSON.
+  out.readAs = {
+    error: "Bing FAILED. Do not read any zero below as a measurement.",
+    "not-a-verified-property":
+      "The key works but is NOT bound to this siteUrl, so every zero below is an artifact. "
+      + "Check `binding.verifiedProperties` for the exact registered form.",
+    "authorised-but-no-data":
+      "Property is verified and the transport is fine; Bing simply holds no rows for this window. "
+      + "Usually means the property is too NEW (Bing is not retroactive) — check `feeds` for the "
+      + "sitemap submission date. This is UNAVAILABLE, never zero.",
+    ok: "Bing returned real rows.",
+  }[out.dataStatus];
   return out;
 }
 
@@ -2314,9 +2421,23 @@ async function canary(cfg, flags) {
   } else {
     const b = await captureBing(site);
     const series = b.rankAndTraffic?.d;
+    // The binding check runs FIRST, because if the key is not bound to this
+    // property then the series check below is measuring nothing and a clean
+    // "0 rows" would read as a finding (2026-09-21).
+    add("bing", "key is bound to this property", "siteUrl in GetUserSites",
+      b.binding?.error ? "FAIL" : b.binding?.matched ? "PASS" : "FAIL",
+      b.binding?.error
+        || (b.binding?.matched
+          ? `registered as ${b.binding.registeredAs}${b.binding.isVerified ? ", verified" : ", NOT VERIFIED"}`
+          : `NOT in this key's properties — it can see: ${(b.binding?.verifiedProperties || []).join(", ") || "none"}`));
+    const feed = Array.isArray(b.feeds?.d) ? b.feeds.d[0] : null;
+    if (feed) {
+      add("bing", "sitemap known to Bing", "submitted and crawled", "PASS",
+        `${feed.Url} submitted ${bingDate(feed.Submitted)}, last crawled ${bingDate(feed.LastCrawled)}, ${feed.UrlCount} urls`);
+    }
     add("bing", "rank and traffic stats", "a non-empty series",
       b.rankAndTraffic?.error ? "FAIL" : Array.isArray(series) && series.length ? "PASS" : "UNKNOWN",
-      b.rankAndTraffic?.error || (Array.isArray(series) ? `${series.length} rows` : "no series in the response — treat any Bing zero below as unavailable, not as zero"));
+      b.rankAndTraffic?.error || (Array.isArray(series) && series.length ? `${series.length} rows` : b.readAs || "no series in the response — treat any Bing zero below as unavailable, not as zero"));
   }
 
   const mark = { PASS: ok("PASS"), FAIL: bad("FAIL"), UNKNOWN: warn("UNKN"), "N/A": paint("n/a ", C.dim) };
