@@ -1,0 +1,17 @@
+{
+  "name": "skill-banner",
+  "description": "Prints a RUNNING SKILL banner with the skill's name the moment a skill starts — the one you typed, or the one Claude picked on its own. Two hooks, one script, writes nothing.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "homepage": "https://github.com/alextongme/alex-tong-toolkit",
+  "license": "MIT",
+  "keywords": [
+    "skill",
+    "banner",
+    "hook",
+    "visibility"
+  ]
+}
