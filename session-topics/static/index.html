@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'">
+<title>Session topics</title>
+<style>
+  :root {
+    /* Runtime values come from the active iTerm2 profile (see applyTheme).
+       The literals are fallbacks for when no profile has been read yet. */
+    --term-bg: #2a2b36;
+    --fg: #e5e5ec;
+    --bold: #ffffff;
+    --accent: #a78bfa;
+    --yellow: #d6ad66;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+    --bg: color-mix(in srgb, var(--term-bg) 94%, #000);
+    --text: var(--fg);
+    --text-strong: var(--bold);
+    --muted: color-mix(in srgb, var(--fg) 62%, var(--bg));
+    --index: color-mix(in srgb, var(--fg) 42%, var(--bg));
+    --divider: rgba(255, 255, 255, 0.08);
+    --title: color-mix(in srgb, var(--accent) 55%, var(--fg));
+    --now-bg: color-mix(in srgb, var(--accent) 12%, var(--bg));
+    --hover-bg: color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --amber: color-mix(in srgb, var(--yellow) 70%, var(--muted));
+    --amber-text: color-mix(in srgb, var(--yellow) 55%, var(--fg));
+  }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+    border-left: 1px solid var(--divider);
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .panel { display: flex; flex-direction: column; height: 100%; }
+
+  header {
+    flex: 0 0 auto;
+    padding: 14px 16px 12px 16px;
+    border-bottom: 1px solid var(--divider);
+  }
+  .title { display: flex; align-items: flex-start; gap: 8px; }
+  .title h1 {
+    margin: 0; flex: 1 1 auto;
+    font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--title);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .title button {
+    all: unset; cursor: default; color: var(--index); display: flex; align-items: center;
+    padding: 2px; margin-top: 1px; border-radius: 3px;
+  }
+  .title button:hover { color: var(--muted); }
+  .title button:focus-visible { outline: 1px solid var(--accent); }
+  .title button svg { width: 12px; height: 12px; transition: transform 120ms ease; }
+  .collapsed .title button svg { transform: rotate(-90deg); }
+  .sub { margin-top: 4px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .sub .wdot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); display: none; }
+  .sub.working .wdot { display: inline-block; }
+  .sub .stale { color: var(--amber-text); }
+  .sub.hidden { display: none; }
+
+  .list { flex: 1 1 auto; overflow-y: auto; padding: 4px 0 16px 0; }
+  .collapsed .list { display: none; }
+
+  .row {
+    display: grid; grid-template-columns: 34px 1fr auto; align-items: baseline;
+    padding: 12px 16px 12px 14px; column-gap: 0;
+    border-left: 2px solid transparent; cursor: default; outline: none;
+  }
+  .row:hover { background: var(--hover-bg); }
+  .row:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+  .row .idx { font-size: 11.5px; color: var(--index); font-variant-numeric: tabular-nums; }
+  .row .label { font-size: 13px; font-weight: 400; line-height: 1.4; color: var(--text); overflow-wrap: anywhere; }
+  .row .right { display: inline-flex; align-items: center; gap: 8px; padding-left: 12px; white-space: nowrap; }
+  .row .caret { width: 10px; height: 10px; color: var(--index); transition: transform 120ms ease; }
+  .row.open .caret { transform: rotate(180deg); }
+  .row .now-tag { display: none; align-items: center; gap: 6px; font-size: 12px; color: var(--accent); }
+  .row .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .row.now { background: var(--now-bg); border-left-color: var(--accent); }
+  .row.now:hover { background: var(--now-bg); }
+  .row.now .label { color: var(--text-strong); }
+  .row.now .now-tag { display: inline-flex; }
+  .row .summary {
+    display: none; grid-column: 2 / 4; margin: 6px 0 0 0;
+    font-size: 12.5px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere;
+  }
+  .row.open .summary { display: block; }
+
+  .row.question { margin-top: 4px; border-top: 1px solid var(--divider); padding-top: 14px; cursor: default; }
+  .row.question:hover { background: transparent; }
+  .row.question .label { color: var(--amber-text); }
+  .row.question .qbadge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 15px; height: 15px; border-radius: 50%; font-size: 10px; font-weight: 600;
+    color: var(--bg); background: var(--amber); position: relative; top: 1px;
+  }
+  .row.question .wait-tag { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--amber); margin-bottom: 3px; }
+  .row.question .qtext { display: block; }
+
+  .nudge {
+    margin: 10px 12px 4px 12px; padding: 12px 14px; border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--bg)); background: var(--now-bg);
+  }
+  .nudge .ntag { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
+  .nudge .ntext { font-size: 12.5px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+  .nudge code {
+    display: block; margin-top: 8px; padding: 6px 8px; border-radius: 4px;
+    background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--text-strong);
+    font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere;
+    user-select: text; -webkit-user-select: text;
+  }
+  .nudge .nact { display: flex; gap: 14px; margin-top: 9px; }
+  .nudge .nhint { font-size: 11.5px; line-height: 1.45; color: var(--muted); margin-top: 10px; }
+  .nudge button { all: unset; cursor: default; font-size: 12px; color: var(--accent); }
+  .nudge button.quiet { color: var(--muted); }
+  .nudge button:focus-visible { outline: 1px solid var(--accent); border-radius: 2px; }
+
+  .empty { padding: 20px 16px; color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="panel" id="panel">
+  <header>
+    <div class="title">
+      <h1 id="title">Session topics</h1>
+      <button id="collapse" title="Collapse list" aria-label="Collapse list">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+      </button>
+    </div>
+    <div class="sub hidden" id="sub"><span class="wdot"></span><span id="subtext">Waiting for a conversation</span></div>
+  </header>
+  <div class="list" id="list" role="list"></div>
+</div>
+<script>
+(function () {
+  const list = document.getElementById('list');
+  const sub = document.getElementById('sub');
+  const subtext = document.getElementById('subtext');
+  const title = document.getElementById('title');
+  const panel = document.getElementById('panel');
+  const collapseBtn = document.getElementById('collapse');
+  let lastVersion = null;
+  let lastTheme = null;
+  let lastState = null;
+  let pageVersion = null;
+  let failures = 0;
+  let lastSeq = null;
+  let openKey = null;
+  let openRows = new Set();
+
+  try { if (localStorage.getItem('collapsed') === '1') panel.classList.add('collapsed'); } catch (e) {}
+  collapseBtn.addEventListener('click', () => {
+    panel.classList.toggle('collapsed');
+    try { localStorage.setItem('collapsed', panel.classList.contains('collapsed') ? '1' : '0'); } catch (e) {}
+  });
+
+  function applyTheme(th) {
+    const r = document.documentElement.style;
+    if (!th) return;
+    if (th.bg) r.setProperty('--term-bg', th.bg);
+    if (th.fg) r.setProperty('--fg', th.fg);
+    if (th.bold) r.setProperty('--bold', th.bold);
+    const a = th.ansi || [];
+    if (a[12] || a[4]) r.setProperty('--accent', a[12] || a[4]);
+    if (a[3] || a[11]) r.setProperty('--yellow', a[3] || a[11]);
+  }
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+
+  function caret() {
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    c.setAttribute('viewBox', '0 0 16 16'); c.setAttribute('class', 'caret');
+    c.innerHTML = '<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>';
+    return c;
+  }
+
+  function setSub(state, stale) {
+    const conv = state && state.conversation;
+    const n = conv ? (state.topics || []).length : 0;
+    let text = conv ? (n + (n === 1 ? ' topic' : ' topics')) : '';
+    const working = !!(conv && conv.status === 'busy');
+    if (working) text += ' · Claude is working';
+    sub.classList.toggle('working', working);
+    subtext.textContent = text;
+    subtext.className = '';
+    if (stale) { subtext.textContent = 'Reconnecting…'; subtext.className = 'stale'; sub.classList.remove('working'); }
+    // with no tracked conversation the empty state already says everything;
+    // the count/status line would only repeat it
+    sub.classList.toggle('hidden', !conv && !stale);
+  }
+
+  function render(state) {
+    const scrollTop = list.scrollTop;
+    list.replaceChildren();
+    if (!state.conversation) {
+      title.textContent = 'This session';
+      list.appendChild(el('div', 'empty', 'Start Claude to track conversation topics.'));
+      return;
+    }
+    title.textContent = state.conversation.plain_title || state.conversation.title || 'This conversation';
+    const topics = state.topics || [];
+    if (topics.length === 0) {
+      list.appendChild(el('div', 'empty', 'Listening for the first topic…'));
+      return;
+    }
+    const convId = state.conversation.sessionId;
+    if (openKey !== convId) { openKey = convId; openRows = new Set(); }
+    topics.forEach((t, i) => {
+      const row = el('div', 'row' + (i === state.current ? ' now' : '') + (openRows.has(i) ? ' open' : ''));
+      row.setAttribute('role', 'listitem');
+      row.appendChild(el('span', 'idx', String(i + 1).padStart(2, '0')));
+      row.appendChild(el('span', 'label', t.label));
+      const right = el('span', 'right');
+      const tag = el('span', 'now-tag');
+      tag.appendChild(el('span', 'dot'));
+      tag.appendChild(el('span', '', 'Now'));
+      right.appendChild(tag);
+      if (t.summary) right.appendChild(caret());
+      row.appendChild(right);
+      if (t.summary) {
+        row.tabIndex = 0;
+        row.setAttribute('aria-expanded', openRows.has(i) ? 'true' : 'false');
+        row.appendChild(el('div', 'summary', t.summary));
+        const toggle = () => {
+          if (openRows.has(i)) openRows.delete(i); else openRows.add(i);
+          row.classList.toggle('open');
+          row.setAttribute('aria-expanded', row.classList.contains('open') ? 'true' : 'false');
+        };
+        row.addEventListener('click', toggle);
+        row.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); }
+        });
+      }
+      list.appendChild(row);
+    });
+    if (state.nudge) list.appendChild(nudgeCard(state.nudge, convId));
+    if (state.question) {
+      const q = el('div', 'row question');
+      const idx = el('span', 'idx');
+      idx.appendChild(el('span', 'qbadge', '?'));
+      q.appendChild(idx);
+      const lab = el('span', 'label');
+      lab.appendChild(el('span', 'wait-tag', 'Waiting on you'));
+      lab.appendChild(el('span', 'qtext', state.question));
+      q.appendChild(lab);
+      q.appendChild(el('span', 'right'));
+      list.appendChild(q);
+    }
+    list.scrollTop = scrollTop;
+  }
+
+  function nudgeCard(n, convId) {
+    const card = el('div', 'nudge');
+    card.appendChild(el('div', 'ntag', 'Start a fresh chat?'));
+    card.appendChild(el('div', 'ntext', n.handoff
+      ? 'This chat has moved on from \u201c' + n.from + '\u201d. Save the newest topic, then type /clear and paste:'
+      : 'This chat has moved on from \u201c' + n.from + '\u201d. Type /clear and start fresh with:'));
+    card.appendChild(el('code', '', n.command));
+    const act = el('div', 'nact');
+    const post = (what, extra) => fetch('/api/' + what + '?session=' + encodeURIComponent(convId) + (extra || ''), { method: 'POST' });
+    const copyButton = (label, extra) => {
+      const b = el('button', '', label);
+      b.addEventListener('click', async () => {
+        try { const r = await post('copy', extra); b.textContent = r.ok ? 'Copied' : 'Copy failed'; }
+        catch (e) { b.textContent = 'Copy failed'; }
+      });
+      return b;
+    };
+    const dismiss = el('button', 'quiet', 'Not now');
+    dismiss.addEventListener('click', () => { post('dismiss').catch(() => {}); card.remove(); });
+    act.appendChild(copyButton(n.handoff ? 'Copy command' : 'Copy'));
+    act.appendChild(dismiss);
+    card.appendChild(act);
+    if (!n.handoff) {
+      card.appendChild(el('div', 'nhint', '/handoff carries the context over instead of starting cold.'));
+      const more = el('div', 'nact');
+      more.appendChild(copyButton('Copy install command', '&install=1'));
+      card.appendChild(more);
+    }
+    return card;
+  }
+
+  async function tick() {
+    try {
+      const url = '/api/state' + (lastSeq === null ? '' : '?wait=' + lastSeq);
+      const r = await fetch(url, { cache: 'no-store' });
+      const state = await r.json();
+      failures = 0;
+      lastSeq = typeof state.seq === 'number' ? state.seq : null;
+      const th = JSON.stringify(state.theme || null);
+      if (th !== lastTheme) { lastTheme = th; applyTheme(state.theme); }
+      if (pageVersion === null) pageVersion = state.page;
+      else if (state.page && state.page !== pageVersion) { location.reload(); return; }
+      lastState = state;
+      if (state.version !== lastVersion) {
+        lastVersion = state.version;
+        render(state);
+      }
+      setSub(state, false);
+    } catch (e) {
+      failures += 1;
+      if (failures >= 3) setSub(lastState, true);
+      await new Promise((res) => setTimeout(res, 1000));
+    }
+  }
+  (async function loop() {
+    // long-poll: each request waits on the server until something changes, so
+    // tab switches and new topics show up the moment they happen
+    while (true) { await tick(); }
+  })();
+})();
+</script>
+</body>
+</html>
