@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Alex Tong's handoff — compact this session by hand. Writes a curated resume prompt from the conversation and live git state; you type /clear and the next session resumes with it — like /compact, but written at full sharpness, and it never carries your corrections forward as confusion.
+description: Alex Tong's handoff — compact this session by hand. Writes a curated resume prompt from the conversation and live git state and puts it on your clipboard; you type /clear and paste it — like /compact, but written at full sharpness, and it never carries your corrections forward as confusion.
 argument-hint: "(optional) what the next session should focus on"
 disable-model-invocation: true
 model: inherit
@@ -8,13 +8,14 @@ model: inherit
 
 # /handoff
 
-You are ending this session and seeding the next one. Do all of this in **one turn**. Do not ask questions. Do not print the handoff — it goes to a file, never to the screen.
+You are ending this session and seeding the next one. Do all of this in **one turn**. Do not ask questions. Do not print the handoff — it goes to a file and the clipboard, never to the screen.
 
 ## 1. Gather facts — never from memory
 
 One Bash call:
 
 ```bash
+date -u +%Y-%m-%dT%H:%MZ
 pwd
 git rev-parse --abbrev-ref HEAD 2>/dev/null
 git status --short 2>/dev/null
@@ -28,7 +29,13 @@ If `pwd` is under a `.claude/worktrees/` path, or `git worktree list` shows it a
 
 Second person, imperative. It is a prompt the next session **acts on**, not a document it reads. **300–600 words, hard cap.** Reference files by path; never paste their contents. If something is already written down — a plan, a STATUS file, a commit — point at it instead of restating it.
 
-Eight sections, headings verbatim, in this order:
+The first line, before any heading, is exactly:
+
+```
+Resume from this handoff, written <the date from step 1>. Act on it directly; do not summarise it back to me.
+```
+
+Then eight sections, headings verbatim, in this order:
 
 1. `## Where you are` — cwd, worktree path if any, branch, ahead/behind, dirty files, open PR, a dev server if you know one is running. The worktree warning goes here.
 2. `## What we're doing` — the goal and why. Three sentences at most.
@@ -45,35 +52,44 @@ If the user passed an argument, it overrides your inference for sections 6–8.
 
 ## 3. Save it
 
-One Bash call. The first line of the file is a tag the hook reads: it only injects the seed into a session that starts in the tagged directory or in a directory above it. `$PWD` is wherever the shell last `cd`'d, so a shell that moved into a worktree or a subfolder is fine. If the shell has moved somewhere *outside* the directory Claude Code was launched in, put that launch directory in place of `$PWD`.
+One Bash call. It writes the file, then copies it to the clipboard with whichever tool the machine has.
 
 ```bash
 dir="$HOME/.claude/handoff"; mkdir -p "$dir"; umask 077
-stamp="$(date -u +%Y-%m-%dT%H:%MZ)"
-{
-  printf '<!-- handoff cwd=%s written=%s -->\n\n' "$PWD" "$stamp"
-  cat <<'HANDOFF'
+cat > "$dir/last.md" <<'HANDOFF'
 ...the composed handoff, verbatim...
 HANDOFF
-} > "$dir/seed.md"
-cp "$dir/seed.md" "$dir/last.md"
-command -v pbcopy >/dev/null 2>&1 && pbcopy < "$dir/seed.md"
-echo "saved $(wc -w < "$dir/seed.md") words"
+f="$dir/last.md"
+if   command -v pbcopy   >/dev/null 2>&1; then pbcopy < "$f"; echo copied
+elif command -v wl-copy  >/dev/null 2>&1; then wl-copy < "$f"; echo copied
+elif command -v xclip    >/dev/null 2>&1; then xclip -selection clipboard < "$f"; echo copied
+elif command -v clip.exe >/dev/null 2>&1; then clip.exe < "$f"; echo copied
+else echo "no clipboard tool"; fi
+echo "saved $(wc -w < "$f") words"
 ```
 
-**If this step fails, stop here.** Print the error. Do not clear a session whose handoff did not save.
+**If this step fails, stop here.** Print the error. Do not tell the user to clear a session whose handoff did not save.
 
-## 4. Print the receipt — four lines, nothing else
+## 4. Print the receipt — nothing else
+
+If step 3 printed `copied`:
 
 ```
-Handoff ready → clipboard + ~/.claude/handoff/seed.md
-  <branch> · <ahead/behind> · <N dirty>     (or: not a git repo)
-  next: <section 6, step 1, one line>
-  Now type /clear
+Handoff ready. The prompt is on your clipboard.
+  1. Type /clear
+  2. Paste it and press Enter
+A copy is saved at ~/.claude/handoff/last.md
+```
+
+If step 3 printed `no clipboard tool`:
+
+```
+Handoff ready. It is saved at ~/.claude/handoff/last.md
+  1. Open that file and copy everything in it
+  2. Type /clear
+  3. Paste it and press Enter
 ```
 
 ## 5. Stop
 
-**End your turn immediately.** Say nothing after the receipt. Never type `/clear` for the user, send keystrokes to the terminal, or run anything that drives the session — the user types it.
-
-When they do, the `SessionStart` hook picks the seed up, injects it, and deletes it. They type anything to continue.
+**End your turn immediately.** Say nothing after the receipt. Never type `/clear` for the user, paste for them, or send keystrokes to the terminal — the user types `/clear`, pastes, and the next session continues from the prompt.
