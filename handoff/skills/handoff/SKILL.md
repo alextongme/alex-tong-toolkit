@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Compact this session by hand. Writes a curated resume prompt from the conversation and live git state; you type /clear and the next session resumes with it — like /compact, but written at full sharpness, and it never carries your corrections forward as confusion.
+description: Alex Tong's handoff — compact this session by hand. Writes a curated resume prompt from the conversation and live git state; you type /clear and the next session resumes with it — like /compact, but written at full sharpness, and it never carries your corrections forward as confusion.
 argument-hint: "(optional) what the next session should focus on"
 disable-model-invocation: true
 model: inherit

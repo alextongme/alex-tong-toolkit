@@ -1,7 +1,7 @@
 ---
 name: seo-setup
 description: >
-  Connect the optional data sources the SEO audit can use — Google Search
+  Alex Tong's SEO setup — connect the optional data sources the SEO audit can use: Google Search
   Console, PageSpeed Insights, Bing Webmaster Tools — and verify each key
   actually works. Use when asked to set up, connect, or fix SEO credentials, or
   when an audit reported a source as not connected or unavailable. Do NOT use as

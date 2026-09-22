@@ -1,7 +1,7 @@
 ---
 name: claude-md-audit
 description: >
-  Review and score CLAUDE.md and .claude/rules/ files — use when asked to
+  Alex Tong's CLAUDE.md audit — review and score CLAUDE.md and .claude/rules/ files. Use when asked to
   review, check, improve, rate, or audit Claude instruction files in any repo,
   or when someone asks "is my CLAUDE.md good?" or "why is Claude ignoring my
   instructions?". Do NOT use for: writing new CLAUDE.md files from scratch,

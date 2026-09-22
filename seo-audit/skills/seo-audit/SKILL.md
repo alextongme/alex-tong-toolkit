@@ -1,7 +1,7 @@
 ---
 name: seo-audit
 description: >
-  Audit a website's search and AI-assistant visibility — use when asked to audit
+  Alex Tong's SEO audit — audit a website's search and AI-assistant visibility. Use when asked to audit
   a site's SEO, check whether AI assistants and crawlers can read it, find out
   why a site or a page is not ranking, take a before/after baseline of search
   signals, or compare two snapshots. Runs with no credentials on the first turn.
