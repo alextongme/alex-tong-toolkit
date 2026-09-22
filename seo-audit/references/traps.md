@@ -254,6 +254,28 @@ run disproved it — four of five assistants named him correctly the moment a cr
 question. The honest finding is narrower: **found by name, invisible commercially.** Qualify it
 before it goes in writing.
 
+## The Images row on a name search is not fixed by schema alone
+
+**Measured on alextong.me, 2026-09-22:** Google for *"alex tong"* showed an Images row of three
+other Alex Tongs. The site had a valid `Person` with an `image`, but that image was a headshot
+rendered only at 56px with empty alt on `/contact`. The large portrait on `/` and `/about` was
+named nowhere in the schema. Now captured per page as `entityImages[].shownOnPage` and site-wide
+as `summary.entityImagesNotShown`.
+
+What moves that row, in order of control:
+
+1. **The `Person.image` is the picture shown large on the pages that declare it**, with the name in
+   its alt text, and listed in the sitemap for those pages (`images` on the entry).
+2. **One photo across every profile** (LinkedIn, YouTube, X, Substack, GitHub). Google groups
+   identical images under one person. A LinkedIn profile photo set to anything but **Public** in
+   *Edit your public profile* is invisible to it.
+3. **Ranking for the name.** The row is drawn from pages that rank for the query. On a crowded name
+   this is the real limit, and nothing on the page shortens it.
+
+⚠️ **Never promise the row.** Name the fix and the timeline (weeks to months, after a recrawl), not
+an outcome. Request indexing in Search Console after the change; the Indexing API is not a route
+(see above).
+
 ## Two checks that pass every health table and still matter more than all of them
 
 | Check | Why |

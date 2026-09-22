@@ -643,6 +643,61 @@ function jsonLdDisambiguationDeep(blocks) {
   return out;
 }
 
+// The picture a Person says they look like, and whether that
+// picture is actually rendered on the page.
+//
+// Added 2026-09-22 after a Google search for "alex tong" showed an Images row
+// of three other Alex Tongs and not the site's owner. The Person JSON-LD named
+// a headshot that only rendered at 56px with empty alt on /contact, while the
+// large portrait on / and /about was named nowhere in the schema. Google trusts
+// a structured-data image more when the same picture is visible on the page,
+// and the name-search image row is filled from the pages that rank for the name.
+//
+// Matching is by path, so `/_next/image?url=%2Fportrait.png`, a srcset entry and
+// an absolute URL all count as the same picture. `null` = could not tell.
+function entityImageUrls(node) {
+  const out = [];
+  for (const one of [node.image].flat()) {
+    if (!one) continue;
+    if (typeof one === "string") out.push(one);
+    else if (typeof one === "object") out.push(one.url || one.contentUrl);
+  }
+  return out.filter(Boolean).map(String);
+}
+
+function imagePath(u, base) {
+  try {
+    const url = new URL(u, base);
+    const inner = url.searchParams.get("url");
+    if (inner && /\/_next\/image|\/_vercel\/image|\/cdn-cgi\/image/.test(url.pathname)) return imagePath(inner, base);
+    return decodeURIComponent(url.pathname);
+  } catch { return null; }
+}
+
+function jsonLdEntityImages(blocks, imgTags, base) {
+  const shown = new Set();
+  for (const tag of imgTags) {
+    const srcs = [attr(tag, "src"), ...String(attr(tag, "srcset") || "").split(",").map((x) => x.trim().split(/\s+/)[0])];
+    for (const src of srcs) {
+      if (!src) continue;
+      const p = imagePath(src.replace(/&amp;/g, "&"), base);
+      if (p) shown.add(p);
+    }
+  }
+  const out = [];
+  walkJsonLd(blocks, (node) => {
+    const t = [node["@type"]].flat().filter(Boolean).map(String);
+    // Person only: an Organization's `image` is usually a logo or share card
+    // that is never meant to render in the page body, and flagging it is noise.
+    if (!t.includes("Person")) return;
+    for (const image of entityImageUrls(node)) {
+      const p = imagePath(image, base);
+      out.push({ type: t.join(","), name: node.name ? String(node.name) : null, image, shownOnPage: p ? shown.has(p) : null });
+    }
+  });
+  return out;
+}
+
 function jsonLdSameAsDeep(blocks) {
   const urls = new Set();
   walkJsonLd(blocks, (node) => {
@@ -827,6 +882,9 @@ async function crawlPage(url, base, site = base) {
     // Named entities on the page and whether each one says which entity it is.
     // The same-name problem is invisible to every other check in this file.
     namedEntities: jsonLdDisambiguationDeep(ld),
+    // The picture each entity claims, and whether this page renders it. What
+    // fills the Images row on a search for the person's name.
+    entityImages: jsonLdEntityImages(ld, imgs, res.url || url),
     // Candidate snippets, never a verdict: the reporter reads them before
     // quoting one. Empty on almost every page, and that is the expected case.
     assistantAddressed,
@@ -1471,6 +1529,20 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages = MAX_CR
       multipleH1: fetched.filter((p) => p.h1Count > 1).map((p) => p.url),
       emptyH1: fetched.filter((p) => p.h1Count > 0 && p.h1.every((h) => !h)).map((p) => p.url),
       totalImagesMissingAlt: fetched.reduce((n, p) => n + (p.imagesMissingAlt || 0), 0),
+      // A Person image that no page declaring it actually renders.
+      // The name-search Images row draws on visible pictures, so a schema-only
+      // headshot is a picture Google has little reason to attribute to the
+      // person. See entityImageUrls for the incident.
+      entityImagesNotShown: (() => {
+        const byImage = new Map();
+        for (const p of fetched) for (const e of p.entityImages || []) {
+          const row = byImage.get(e.image) || { image: e.image, entity: e.name, declaredOn: 0, shownOn: 0 };
+          row.declaredOn += 1;
+          if (e.shownOnPage) row.shownOn += 1;
+          byImage.set(e.image, row);
+        }
+        return [...byImage.values()].filter((r) => r.shownOn === 0);
+      })(),
       totalWords: fetched.reduce((n, p) => n + (p.wordCount || 0), 0),
       // In the sitemap, reachable from no other page on the site.
       orphanPages: orphans,

@@ -260,6 +260,7 @@ the ask is reasonable. Just never bill it as a visibility win.
 | 68 | Under ~200 KB each | `manual` |
 | 69 | `width` and `height` set, so layout does not shift | `manual` |
 | 70 | Below-the-fold images lazy-loaded | `manual` |
+| 70a | **The `Person` schema `image` is rendered on the page that declares it** — `summary.entityImagesNotShown` | `auto` |
 
 ## 13. Authorship and trust
 

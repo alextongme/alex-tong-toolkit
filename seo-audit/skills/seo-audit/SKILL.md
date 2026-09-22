@@ -227,6 +227,9 @@ Order, top to bottom:
    **more restrictive** directive is the one that applies; never say the header
    overrides the tag, which is not Google's rule and is wrong in the other
    direction.
+   On a personal site, also rank **`summary.entityImagesNotShown`** high: a
+   `Person` image that no page renders is why a search for the owner's name
+   shows strangers' photos. See the same-name entry in `traps.md`.
 4. **What could not be checked, and why.** Anything needing a keyword→URL map,
    anything needing a credential, anything the crawler does not measure.
 5. **One action for this week.** Exactly one. The most valuable finding, the
