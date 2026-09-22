@@ -17,7 +17,7 @@ Inside Claude Code:
 /plugin install handoff@alex-tong-toolkit
 ```
 
-That's the whole install. The hook registers with the plugin. New versions arrive with `/plugin update handoff@alex-tong-toolkit`.
+Then **quit Claude Code and start it again, once.** Hooks are read when the process launches, so a hook installed mid-session is not loaded until the next launch: `/handoff` would still write the seed, and `/clear` would drop it silently. After that one restart the hook registers with the plugin and stays. New versions arrive with `/plugin update handoff@alex-tong-toolkit`.
 
 If a skill named `handoff` is already in `~/.claude/skills/` (Matt Pocock ships one), delete it first so the two don't collide:
 
@@ -65,7 +65,7 @@ The hook fires on `startup` too, so quitting and running `claude` again in the s
 |---|---|
 | Cleared and the context looks wrong | `cat ~/.claude/handoff/last.md` — then tell Claude what to fix |
 | Changed your mind before `/clear` | `rm ~/.claude/handoff/seed.md` |
-| Seed didn't inject | You started in a different directory than you ran `/handoff` in. The seed is still there; start from the right one. |
+| Seed didn't inject | Either you started in a different directory than you ran `/handoff` in, or you installed mid-session and never restarted (hooks load at launch). The seed is still there either way: quit, run `claude` from the right directory, and the `startup` hook resumes it. |
 | A secret ended up in the prompt | Rotate it. The file is `chmod 600` and never left your machine, but treat it as exposed. |
 
 ## Prior art
