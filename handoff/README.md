@@ -1,10 +1,10 @@
 # Handoff
 
-**Version 1.0.0** · a Claude Code skill + one hook · writes one file · MIT
+**Version 1.0.1** · a Claude Code skill + one hook · writes one file · MIT
 
 `/compact` summarises your session with the model at its dullest — right at the ceiling, with no review — and it carries every correction you made forward as part of the confusion. `/handoff` does the same reset with the summary written on purpose: from the conversation *and* the live git state, at full sharpness, with a section for what you corrected so the next session doesn't repeat it.
 
-You type `/handoff`. It writes the resume prompt, clears the context, and the next session starts already knowing where it is.
+You type `/handoff`, then `/clear`. It writes the resume prompt, and the next session starts already knowing where it is.
 
 Questions and the changelog live in [The AI Kitchen](https://alextong.me/kitchen).
 
@@ -32,8 +32,7 @@ rm -rf ~/.claude/skills/handoff
   → reads pwd, branch, git status, last 8 commits, worktree list
   → writes a 300–600 word resume prompt, never printed
   → saves it to ~/.claude/handoff/seed.md (+ last.md, + your clipboard on macOS)
-  → prints a 3-line receipt: branch, dirty count, next step
-  → in iTerm2: types /clear for you. Elsewhere: tells you to.
+  → prints a 4-line receipt: branch, dirty count, next step, `Now type /clear`
 /clear
   → SessionStart hook sees the seed, checks it was written for this directory,
     injects it, deletes it
@@ -55,7 +54,7 @@ The two bold sections are the point. `/compact` cannot write either.
 - Your clipboard, on macOS only, as a backup.
 - **Nothing else.** No network calls. Nothing leaves your machine. The hook reads stdin, reads one file, writes stdout.
 
-**In iTerm2 the skill types `/clear` into your session.** It targets your exact session by `$ITERM_SESSION_ID` via AppleScript, only ever sends the string `/clear`, and only after the seed is confirmed saved. Outside iTerm2 it does nothing and asks you to type it. If you'd rather always type it yourself, delete step 5 of `skills/handoff/SKILL.md`.
+**You type `/clear` yourself.** The skill never sends keystrokes to your terminal, so it behaves the same in every terminal, on every OS, and in every permission mode. The hook is what carries the seed across, and Claude Code runs hooks itself.
 
 The hook fires on `startup` too, so quitting and running `claude` again in the same directory resumes the same way. Use that path when you want a fresh process — after updating Claude Code, or when an MCP server has gone stale.
 
@@ -70,8 +69,9 @@ The hook fires on `startup` too, so quitting and running `claude` again in the s
 
 ## Prior art
 
-The handoff-as-a-document idea is [Matt Pocock's `/handoff`](https://www.aihero.dev/skills-handoff). The insight that a fresh session beats `/compact` for cost and clarity is [yacb2/claude-session-handoff](https://github.com/yacb2/claude-session-handoff), which relaunches the process. This one keeps the process — `/clear` fires `SessionStart`, and a hook can inject context there — so nothing reconnects and nothing is killed. Anthropic has [several](https://github.com/anthropics/claude-code/issues/20267) [open](https://github.com/anthropics/claude-code/issues/35150) [requests](https://github.com/anthropics/claude-code/issues/37307) to let a skill trigger `/clear` directly; when that ships, the iTerm2 step goes away and nothing else changes.
+The handoff-as-a-document idea is [Matt Pocock's `/handoff`](https://www.aihero.dev/skills-handoff). The insight that a fresh session beats `/compact` for cost and clarity is [yacb2/claude-session-handoff](https://github.com/yacb2/claude-session-handoff), which relaunches the process. This one keeps the process — `/clear` fires `SessionStart`, and a hook can inject context there — so nothing reconnects and nothing is killed. Anthropic has [several](https://github.com/anthropics/claude-code/issues/20267) [open](https://github.com/anthropics/claude-code/issues/35150) [requests](https://github.com/anthropics/claude-code/issues/37307) to let a skill trigger `/clear` directly; when that ships, the one thing you still type goes away and nothing else changes.
 
 ## Versions
 
+- **1.0.1** (2026-09-22) — The skill no longer types `/clear` into iTerm2; you type it. Same behavior in every terminal and permission mode.
 - **1.0.0** (2026-09-22) — First release.

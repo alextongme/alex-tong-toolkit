@@ -10,7 +10,7 @@ Claude Code skills from my YouTube videos. Every video ships one thing you can i
 |---|---|---|
 | [`claude-md-audit`](./claude-md-audit) | Reads every `CLAUDE.md` and `.claude/rules/*.md` in a repo, scores it out of 11, and names the exact lines to cut. Read-only, never rewrites your file. | [Your auto-generated CLAUDE.md is worse than no file at all](https://youtu.be/YD4PVx3ygDQ) |
 | [`statusline`](./statusline) | A two-line status line for Claude Code: model, folder, branch on top; context left, session cost, elapsed time below. Turns red before Claude starts forgetting. | same video |
-| [`handoff`](./handoff) | Compacts a session by hand: writes a curated resume prompt from the conversation and live git state, clears, and resumes with it. The one skill here that writes a file. | — |
+| [`handoff`](./handoff) | Compacts a session by hand: writes a curated resume prompt from the conversation and live git state, and the next session resumes with it after you type `/clear`. The one skill here that writes a file. | — |
 
 One folder per video. The next video adds the next folder.
 
