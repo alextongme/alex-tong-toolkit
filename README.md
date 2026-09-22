@@ -11,6 +11,7 @@ Claude Code skills from my YouTube videos. Every video ships one thing you can i
 | [`claude-md-audit`](./claude-md-audit) | Reads every `CLAUDE.md` and `.claude/rules/*.md` in a repo, scores it out of 11, and names the exact lines to cut. Read-only, never rewrites your file. | [Your auto-generated CLAUDE.md is worse than no file at all](https://youtu.be/YD4PVx3ygDQ) |
 | [`statusline`](./statusline) | A two-line status line for Claude Code: model, folder, branch on top; context left, session cost, elapsed time below. Turns red before Claude starts forgetting. | same video |
 | [`fresh`](./fresh) | The restart for when context is running low, polluted, or the session went sideways: writes a short resume prompt from the conversation and live git state and puts it on your clipboard; you type `/clear` and paste it. The one skill here that writes a file. | — |
+| [`skill-banner`](./skill-banner) | Prints a `▶ RUNNING SKILL` banner with the skill's name the moment a skill starts, whether you typed the slash command or Claude picked the skill on its own. Two hooks, one script, writes nothing. | — |
 
 One folder per video. The next video adds the next folder.
 
