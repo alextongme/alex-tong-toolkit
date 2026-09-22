@@ -1,4 +1,4 @@
-# Session Topics  —  v0.1.0
+# Session Topics  —  v0.1.1
 
 > **Not released yet.** The installer is locked until the video that ships it is out. Follow [the Kitchen](https://alextong.me/kitchen) for the release.
 
@@ -58,7 +58,7 @@ Nothing is sent anywhere else. No telemetry.
 
 ## The fresh-chat card
 
-When a conversation has moved to a new subject, a card suggests starting a new chat. If you have the [handoff](../handoff) plugin, the card gives you a `/handoff` command that carries the newest topic over. Without it, the card gives a plain line to paste after `/clear`, plus a button that copies the command to install handoff.
+When a conversation has moved to a new subject, a card suggests starting a new chat. If you have the [fresh](../fresh) plugin, the card gives you a `/fresh:fresh` command that carries the newest topic over. Without it, the card gives a plain line to paste after `/clear`, plus a button that copies the command to install fresh.
 
 ## Uninstall
 

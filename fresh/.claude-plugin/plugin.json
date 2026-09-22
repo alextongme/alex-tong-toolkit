@@ -1,0 +1,18 @@
+{
+  "name": "fresh",
+  "description": "The restart for when context is running low, polluted, or the session went sideways: writes a short resume prompt from the conversation and live git state and puts it on your clipboard; you type /clear and paste it. Writes one file under ~/.claude/fresh/ and nothing else.",
+  "version": "2.0.0",
+  "author": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "homepage": "https://github.com/alextongme/alex-tong-toolkit",
+  "license": "MIT",
+  "keywords": [
+    "fresh",
+    "restart",
+    "context",
+    "session",
+    "clear"
+  ]
+}
