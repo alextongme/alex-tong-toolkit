@@ -1,6 +1,6 @@
 # Handoff
 
-**Version 1.0.1** · a Claude Code skill + one hook · writes one file · MIT
+**Version 1.0.2** · a Claude Code skill + one hook · writes one file · MIT
 
 `/compact` summarises your session with the model at its dullest — right at the ceiling, with no review — and it carries every correction you made forward as part of the confusion. `/handoff` does the same reset with the summary written on purpose: from the conversation *and* the live git state, at full sharpness, with a section for what you corrected so the next session doesn't repeat it.
 
@@ -30,8 +30,8 @@ Claude Code files plugin skills under the plugin's name, so this one's full name
   → saves it to ~/.claude/handoff/seed.md (+ last.md, + your clipboard on macOS)
   → prints a 4-line receipt: branch, dirty count, next step, `Now type /clear`
 /clear
-  → SessionStart hook sees the seed, checks it was written for this directory,
-    injects it, deletes it
+  → SessionStart hook sees the seed, checks it was written in this directory
+    or a folder inside it, injects it, deletes it
   → type anything. The session continues where it left off.
 ```
 
@@ -69,5 +69,6 @@ The handoff-as-a-document idea is [Matt Pocock's `/handoff`](https://www.aihero.
 
 ## Versions
 
+- **1.0.2** (2026-09-22) — The hook accepts a seed written from a folder inside the session's directory, so a `cd` into a worktree or a subfolder during the session no longer makes `/clear` skip it silently.
 - **1.0.1** (2026-09-22) — The skill no longer types `/clear` into iTerm2; you type it. Same behavior in every terminal and permission mode.
 - **1.0.0** (2026-09-22) — First release.
