@@ -28,6 +28,11 @@ fi
 
 [ -z "$name" ] && exit 0
 
+# A plugin skill arrives as plugin:skill. Show just the skill, as a typed command does.
+name="${name##*:}"
+[ -z "$name" ] && exit 0
+
 # The name is limited to the characters above, so this is always valid JSON.
-printf '{"systemMessage":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\\n▶ RUNNING SKILL   %s\\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}\n' "$name"
+# The leading \n puts the box on its own line under Claude Code's "<hook> says:" label.
+printf '{"systemMessage":"\\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\\n▶ RUNNING SKILL   %s\\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}\n' "$name"
 exit 0

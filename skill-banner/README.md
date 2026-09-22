@@ -1,6 +1,6 @@
 # Skill Banner
 
-**Version 1.0.0** · a Claude Code hook · writes nothing · MIT
+**Version 1.0.1** · a Claude Code hook · writes nothing · MIT
 
 Claude Code starts skills two ways, and both are easy to miss. When Claude picks a skill on its own, the only trace is a tool call that scrolls past. When you type a slash command yourself, nothing confirms it took. This plugin prints one banner the moment a skill starts, either way:
 
@@ -32,7 +32,7 @@ Two hooks in `hooks/hooks.json`, one script in `scripts/banner.sh`.
 | You type `/name` | `UserPromptSubmit` | the `prompt` field, which holds your text as typed |
 | Claude picks a skill | `PreToolUse` on the `Skill` tool | `tool_input.skill` |
 
-Either way the script answers with a `systemMessage`, and Claude Code prints it before the skill runs. Claude Code puts the hook's name in front of it (`UserPromptSubmit says:`); a hook cannot change that.
+Either way the script answers with a `systemMessage`, and Claude Code prints it before the skill runs. Claude Code puts the hook's name in front of it (`UserPromptSubmit says:` or `PreToolUse:Skill says:`); a hook cannot change that, so the box starts on the line below. A plugin skill such as `claude-md-audit:claude-md-audit` is shown by its skill name alone, the same both ways.
 
 ## Why a hook and not a CLAUDE.md line
 
@@ -49,4 +49,5 @@ Known quirk: if a typed command's own instructions make Claude call the `Skill` 
 
 ## Versions
 
+- **1.0.1** (2026-09-22) — The box starts on its own line under Claude Code's label, and a plugin skill shows by its skill name alone.
 - **1.0.0** (2026-09-22) — First release.
