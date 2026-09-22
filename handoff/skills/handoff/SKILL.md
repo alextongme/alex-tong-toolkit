@@ -45,7 +45,7 @@ If the user passed an argument, it overrides your inference for sections 6–8.
 
 ## 3. Save it
 
-One Bash call. The first line of the file is a tag the hook reads: it only injects the seed into a session that starts in this same directory.
+One Bash call. The first line of the file is a tag the hook reads: it only injects the seed into a session that starts in the tagged directory or in a directory above it. `$PWD` is wherever the shell last `cd`'d, so a shell that moved into a worktree or a subfolder is fine. If the shell has moved somewhere *outside* the directory Claude Code was launched in, put that launch directory in place of `$PWD`.
 
 ```bash
 dir="$HOME/.claude/handoff"; mkdir -p "$dir"; umask 077

@@ -2,8 +2,8 @@
 """SessionStart hook for /handoff.
 
 If ~/.claude/handoff/seed.md exists and was written for the directory this
-session is starting in, inject it as context and delete it. Otherwise do
-nothing. Every failure path exits 0 with no output: this hook never blocks
+session is starting in, or for a folder inside it, inject it as context and
+delete it. Otherwise do nothing. Every failure path exits 0 with no output: this hook never blocks
 Claude Code. Reads stdin, reads one file, writes stdout, no network.
 """
 import json
@@ -22,7 +22,13 @@ try:
         text = f.read()
 
     tag = re.match(r"<!-- handoff cwd=(.+?) written=(\S+) -->", text)
-    if not tag or os.path.realpath(tag.group(1)) != cwd:
+    if not tag:
+        sys.exit(0)
+    # The skill tags the seed with the shell's $PWD, which may have cd'd into a
+    # worktree or a subfolder since launch, while the new session starts in the
+    # launch directory. Accept that directory itself or anything inside it.
+    tagged = os.path.realpath(tag.group(1))
+    if os.path.commonpath([tagged, cwd]) != cwd:
         sys.exit(0)  # written for another directory; leave it for that session
 
     os.remove(seed)  # consume once; last.md keeps the recovery copy

@@ -1,7 +1,7 @@
 {
   "name": "handoff",
   "description": "Compacts a session by hand: writes a curated resume prompt from the conversation and live git state, then you type /clear and the next session resumes with it. Writes one file under ~/.claude/handoff/ and nothing else.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": {
     "name": "Alex Tong",
     "url": "https://alextong.me"
