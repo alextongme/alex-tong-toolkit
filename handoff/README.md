@@ -19,11 +19,7 @@ Inside Claude Code:
 
 Then **quit Claude Code and start it again, once.** Hooks are read when the process launches, so a hook installed mid-session is not loaded until the next launch: `/handoff` would still write the seed, and `/clear` would drop it silently. After that one restart the hook registers with the plugin and stays. New versions arrive with `/plugin update handoff@alex-tong-toolkit`.
 
-If a skill named `handoff` is already in `~/.claude/skills/` (Matt Pocock ships one), delete it first so the two don't collide:
-
-```bash
-rm -rf ~/.claude/skills/handoff
-```
+Claude Code files plugin skills under the plugin's name, so this one's full name is `/handoff:handoff`. If you already have [Matt Pocock's `/handoff`](https://www.aihero.dev/skills-handoff) in `~/.claude/skills/`, keep it — both stay available. Bare `/handoff` runs his; `/handoff:handoff` runs this one.
 
 ## What happens when you run it
 
