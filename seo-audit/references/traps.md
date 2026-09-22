@@ -266,8 +266,9 @@ What moves that row, in order of control:
 
 1. **The `Person.image` is the picture shown large on the pages that declare it**, with the name in
    its alt text, and listed in the sitemap for those pages (`images` on the entry).
-2. **One photo across every profile** (LinkedIn, YouTube, X, Substack, GitHub). Google groups
-   identical images under one person. A LinkedIn profile photo set to anything but **Public** in
+2. **One photo across every profile** (LinkedIn, YouTube, X, Substack, GitHub). It is common SEO advice that matching
+   photos help Google tie profiles together; Google does not document it, so treat it as cheap
+   hygiene, not a lever. A LinkedIn profile photo set to anything but **Public** in
    *Edit your public profile* is invisible to it.
 3. **Ranking for the name.** The row is drawn from pages that rank for the query. On a crowded name
    this is the real limit, and nothing on the page shortens it.
