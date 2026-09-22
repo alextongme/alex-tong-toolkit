@@ -10,6 +10,7 @@ Claude Code skills from my YouTube videos. Every video ships one thing you can i
 |---|---|---|
 | [`claude-md-audit`](./claude-md-audit) | Reads every `CLAUDE.md` and `.claude/rules/*.md` in a repo, scores it out of 11, and names the exact lines to cut. Read-only, never rewrites your file. | [Your auto-generated CLAUDE.md is worse than no file at all](https://youtu.be/YD4PVx3ygDQ) |
 | [`statusline`](./statusline) | A two-line status line for Claude Code: model, folder, branch on top; context left, session cost, elapsed time below. Turns red before Claude starts forgetting. | same video |
+| [`handoff`](./handoff) | Compacts a session by hand: writes a curated resume prompt from the conversation and live git state, clears, and resumes with it. The one skill here that writes a file. | — |
 
 One folder per video. The next video adds the next folder.
 
@@ -35,7 +36,8 @@ If one of these saved you time, a star tells me which ones to make more of.
 ## What these don't do
 
 Every skill here is read-only on purpose. `claude-md-audit` scores your file and names the exact
-lines to cut, and it never rewrites the file. That rule holds across the toolkit: these tools tell
+lines to cut, and it never rewrites the file. `handoff` is the one narrow exception: it writes a single
+file under `~/.claude/handoff/` and, on macOS, your clipboard, nothing else. Otherwise the rule holds: these tools tell
 you what is wrong. They do not decide which of those findings actually matter for your situation,
 they do not do the work, and they cannot come back in thirty days to tell you what moved.
 
