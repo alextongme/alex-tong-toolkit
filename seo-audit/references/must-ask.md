@@ -33,6 +33,12 @@ listed eight profiles and was missing three real ones; another had
 site, plus the obvious absences for their field. Read the footer and the contact
 page before asking.
 
+**Owners forget the accounts they do not think of as profiles.** Ask about the
+channels their post scheduler publishes to (Buffer, Later, Hootsuite) and any
+dormant syndication accounts (dev.to, Hashnode, Medium). On alextong.me on
+2026-09-22, those turned up three more real profiles the owner had not listed,
+two of them from Buffer's channel list.
+
 ### 2. Is there anyone else with your name or brand, and where do they outrank you?
 
 **Why it decides something:** it changes the target from "rank for my name" to
