@@ -1,0 +1,12 @@
+{
+  "name": "handoff",
+  "description": "Compacts a session by hand: writes a curated resume prompt from the conversation and live git state, clears the context, and resumes with it. Writes one file under ~/.claude/handoff/ and nothing else.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Alex Tong",
+    "url": "https://alextong.me"
+  },
+  "homepage": "https://github.com/alextongme/alex-tong-toolkit",
+  "license": "MIT",
+  "keywords": ["handoff", "compact", "context", "session"]
+}

@@ -14,7 +14,25 @@
       "description": "Scores every CLAUDE.md and .claude/rules file in a repo out of 11 and names the exact lines to cut. Read-only during the audit.",
       "version": "1.0.3",
       "category": "productivity",
-      "keywords": ["claude-md", "context", "audit", "rules"]
+      "keywords": [
+        "claude-md",
+        "context",
+        "audit",
+        "rules"
+      ]
+    },
+    {
+      "name": "handoff",
+      "source": "./handoff",
+      "description": "Compacts a session by hand: writes a curated resume prompt from the conversation and live git state, clears the context, and resumes with it. Writes one file under ~/.claude/handoff/ and nothing else.",
+      "version": "1.0.0",
+      "category": "productivity",
+      "keywords": [
+        "handoff",
+        "compact",
+        "context",
+        "session"
+      ]
     }
   ]
 }
