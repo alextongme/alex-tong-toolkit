@@ -24,8 +24,8 @@
     {
       "name": "handoff",
       "source": "./handoff",
-      "description": "Compacts a session by hand: writes a curated resume prompt from the conversation and live git state, clears the context, and resumes with it. Writes one file under ~/.claude/handoff/ and nothing else.",
-      "version": "1.0.0",
+      "description": "Compacts a session by hand: writes a curated resume prompt from the conversation and live git state, then you type /clear and the next session resumes with it. Writes one file under ~/.claude/handoff/ and nothing else.",
+      "version": "1.0.1",
       "category": "productivity",
       "keywords": [
         "handoff",

@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Compact this session by hand. Writes a curated resume prompt from the conversation and live git state, clears the context, and resumes with it — like /compact, but written at full sharpness, and it never carries your corrections forward as confusion.
+description: Compact this session by hand. Writes a curated resume prompt from the conversation and live git state; you type /clear and the next session resumes with it — like /compact, but written at full sharpness, and it never carries your corrections forward as confusion.
 argument-hint: "(optional) what the next session should focus on"
 disable-model-invocation: true
 model: inherit
@@ -63,43 +63,17 @@ echo "saved $(wc -w < "$dir/seed.md") words"
 
 **If this step fails, stop here.** Print the error. Do not clear a session whose handoff did not save.
 
-## 4. Print the receipt — three lines, nothing else
+## 4. Print the receipt — four lines, nothing else
 
 ```
 Handoff ready → clipboard + ~/.claude/handoff/seed.md
   <branch> · <ahead/behind> · <N dirty>     (or: not a git repo)
   next: <section 6, step 1, one line>
-```
-
-## 5. Clear
-
-If `$ITERM_SESSION_ID` is set, type `/clear` into this session for the user. It queues while your turn is running and executes the moment you stop:
-
-```bash
-uuid="${ITERM_SESSION_ID#*:}"
-osascript <<EOF
-tell application "iTerm2"
-  repeat with w in windows
-    repeat with t in tabs of w
-      repeat with s in sessions of t
-        if id of s is "$uuid" then
-          tell s to write text "/clear"
-          return "queued /clear"
-        end if
-      end repeat
-    end repeat
-  end repeat
-  return "session not found — type /clear yourself"
-end tell
-EOF
-```
-
-Then **end your turn immediately**. Say nothing after the receipt.
-
-If `$ITERM_SESSION_ID` is not set — VS Code, the desktop app, another terminal — add one line to the receipt and end your turn:
-
-```
   Now type /clear
 ```
 
-Either way the `SessionStart` hook picks the seed up, injects it, and deletes it. The user types anything to continue.
+## 5. Stop
+
+**End your turn immediately.** Say nothing after the receipt. Never type `/clear` for the user, send keystrokes to the terminal, or run anything that drives the session — the user types it.
+
+When they do, the `SessionStart` hook picks the seed up, injects it, and deletes it. They type anything to continue.
