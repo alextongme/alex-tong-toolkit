@@ -266,7 +266,7 @@
   function nudgeCard(n, convId) {
     const card = el('div', 'nudge');
     card.appendChild(el('div', 'ntag', 'Start a fresh chat?'));
-    card.appendChild(el('div', 'ntext', n.handoff
+    card.appendChild(el('div', 'ntext', n.fresh
       ? 'This chat has moved on from \u201c' + n.from + '\u201d. Save the newest topic, then type /clear and paste:'
       : 'This chat has moved on from \u201c' + n.from + '\u201d. Type /clear and start fresh with:'));
     card.appendChild(el('code', '', n.command));
@@ -282,11 +282,11 @@
     };
     const dismiss = el('button', 'quiet', 'Not now');
     dismiss.addEventListener('click', () => { post('dismiss').catch(() => {}); card.remove(); });
-    act.appendChild(copyButton(n.handoff ? 'Copy command' : 'Copy'));
+    act.appendChild(copyButton(n.fresh ? 'Copy command' : 'Copy'));
     act.appendChild(dismiss);
     card.appendChild(act);
-    if (!n.handoff) {
-      card.appendChild(el('div', 'nhint', '/handoff carries the context over instead of starting cold.'));
+    if (!n.fresh) {
+      card.appendChild(el('div', 'nhint', '/fresh:fresh carries the newest topic over instead of starting cold.'));
       const more = el('div', 'nact');
       more.appendChild(copyButton('Copy install command', '&install=1'));
       card.appendChild(more);

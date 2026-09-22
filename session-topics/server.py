@@ -60,8 +60,8 @@ CONTEXT_MSGS = 2               # earlier user messages shown next to the newest 
 RECONCILE_EVERY = 2.0          # seconds between direct reads of the focused iTerm2 session
 NUDGE_MIN_EXCHANGES = 6        # no 'start a fresh chat' card in a short conversation
 NUDGE_STREAK = 2               # ...and only after this many exchanges in a row drifted
-HANDOFF_INSTALL = ("claude plugin marketplace add alextongme/alex-tong-toolkit"
-                   " && claude plugin install handoff@alex-tong-toolkit")
+FRESH_INSTALL = ("claude plugin marketplace add alextongme/alex-tong-toolkit"
+                 " && claude plugin install fresh@alex-tong-toolkit")
 PATH_AUG = ":".join([
     str(Path.home() / ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin",
     "/usr/bin", "/bin",
@@ -264,10 +264,10 @@ class Conversation:
         cur = self.topics[self.current]["label"]
         if cur in self.nudge_dismissed:
             return None
-        if handoff_installed():
-            return {"from": self.topics[0]["label"], "to": cur, "handoff": True,
-                    "command": f'/handoff only the newest topic: "{cur}". Leave out everything before it.'}
-        return {"from": self.topics[0]["label"], "to": cur, "handoff": False,
+        if fresh_installed():
+            return {"from": self.topics[0]["label"], "to": cur, "fresh": True,
+                    "command": f'/fresh:fresh only the newest topic: "{cur}". Leave out everything before it.'}
+        return {"from": self.topics[0]["label"], "to": cur, "fresh": False,
                 "command": f'Let\'s work on: "{cur}".'}
 
     def public(self):
@@ -284,27 +284,27 @@ class Conversation:
         }
 
 
-_HANDOFF_CACHE = {"key": None, "val": False}
+_FRESH_CACHE = {"key": None, "val": False}
 
 
-def handoff_installed():
-    """True when the handoff skill is installed, as a plugin or a user skill. Cached on mtime."""
+def fresh_installed():
+    """True when the fresh skill is installed, as a plugin or a user skill. Cached on mtime."""
     reg = CLAUDE_HOME / "plugins" / "installed_plugins.json"
-    skill = CLAUDE_HOME / "skills" / "handoff" / "SKILL.md"
+    skill = CLAUDE_HOME / "skills" / "fresh" / "SKILL.md"
     try:
         key = (reg.stat().st_mtime, skill.exists())
     except OSError:
         key = (None, skill.exists())
-    if key != _HANDOFF_CACHE["key"]:
+    if key != _FRESH_CACHE["key"]:
         val = key[1]
         if not val and key[0] is not None:
             try:
                 plugins = json.loads(reg.read_text()).get("plugins") or {}
-                val = any(k.split("@")[0] == "handoff" for k in plugins)
+                val = any(k.split("@")[0] == "fresh" for k in plugins)
             except (OSError, ValueError, AttributeError):
                 val = False
-        _HANDOFF_CACHE.update(key=key, val=val)
-    return _HANDOFF_CACHE["val"]
+        _FRESH_CACHE.update(key=key, val=val)
+    return _FRESH_CACHE["val"]
 
 
 def message_text(content):
@@ -931,7 +931,7 @@ class Handler(BaseHTTPRequestHandler):
                 bump(conv)
                 return self._send(204, b"", "text/plain")
         install = (urllib.parse.parse_qs(qs).get("install") or [""])[0] == "1"
-        text = HANDOFF_INSTALL if install else nudge["command"]
+        text = FRESH_INSTALL if install else nudge["command"]
         try:
             subprocess.run(["pbcopy"], input=text, text=True, timeout=5, check=True)
         except Exception as e:
