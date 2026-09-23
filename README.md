@@ -17,16 +17,11 @@ One folder per video. The next video adds the next folder.
 
 ## Install
 
-This repo is a Claude Code plugin marketplace. Inside Claude Code:
+This repo is a Claude Code plugin marketplace. The install and update commands live in [The AI Kitchen](https://alextong.me/kitchen), free to join, next to the changelog for every version.
 
-```
-/plugin marketplace add alextongme/alex-tong-toolkit
-/plugin install claude-md-audit@alex-tong-toolkit
-```
+Each plugin has its own page, with what it does, what it touches on your machine, and how to tell it's working: [alextong.me/toolkit](https://alextong.me/toolkit?utm_source=github&utm_medium=bio&utm_campaign=evergreen&utm_content=post-body). Every folder here carries the code itself, a short readme and a `VERSION`, so you can read every line before you install anything.
 
-Then run `/claude-md-audit` in any repo. Updates arrive with `/plugin update`. The skill's own page, with every mode and a real scorecard: [`claude-md-audit/`](./claude-md-audit).
-
-The status line is a script plus one block in `~/.claude/settings.json`, so it has its own steps: [`statusline/INSTALL.md`](./statusline/INSTALL.md). Every folder carries its own readme and a `VERSION`.
+The status line is a script plus one block in `~/.claude/settings.json`, so it has its own steps: [`statusline/INSTALL.md`](./statusline/INSTALL.md).
 
 ## Updates, changelog, questions
 
