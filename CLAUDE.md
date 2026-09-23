@@ -35,7 +35,7 @@ This repo is **public**. Anything that reaches git history is effectively perman
   README.md                the GitHub stub: one-line description, version line, link to the page, "install lives in the Kitchen", Versions list. (Scripts still use INSTALL.md.)
   VERSION                  semver; the human-readable copy of the version in plugin.json
   skills/<name>/SKILL.md   the skill, when the package is a skill
-  *.sh                     the script, when it is a script (scripts are not plugins; they install by copy)
+  *.sh                     the script, when it is a script. Ship it as a plugin anyway, so it installs and updates like the rest (see "Tools that need a settings key")
 README.md                  the pitch: what is in it, one line per entry, install, the video, the Kitchen link
 scripts/scan-safety.js     the safety scanner (credential formats and generic patterns only)
 .githooks/pre-commit       runs the scanner on staged files, opt-in
@@ -108,6 +108,14 @@ Default is inline questions, multiple choice plus free text. When a skill genuin
 - A written artifact between stages, so a later stage can check what an earlier stage asked for.
 - One step, one approval, on anything that changes the user's files or reaches outside their machine.
 - An output the skill is allowed to refuse to produce, with the reason and what would change it.
+
+## Tools that need a settings key
+
+A plugin's own `settings.json` supports only `agent` and `subagentStatusLine`, so a plugin cannot set `statusLine` or any other key in the user's settings. `statusline` (2026-09-23) is the pattern for a tool that needs one:
+
+- A `SessionStart` hook copies the script from `${CLAUDE_PLUGIN_ROOT}` into `${CLAUDE_PLUGIN_DATA}` (`~/.claude/plugins/data/<plugin>-alex-tong-toolkit/`). That path survives `/plugin update`, so an update reaches the user. The hook never touches settings and always exits 0.
+- A setup skill with `disable-model-invocation: true` makes the settings change: it reads only the one key (never prints `settings.json`, which can hold keys), shows the change, waits for a yes, backs the file up, changes that one key with `jq`, and takes a `remove` argument that undoes it. Name it `<plugin>:setup`, never after a built-in command.
+- Never a hook that writes `settings.json`: it changes global config without asking and can clobber what the user had. SkillSpector flags the setup skill's settings edits (AS1). That is the expected, gated case, not a finding to fix.
 
 ## Conventions
 

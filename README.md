@@ -26,7 +26,7 @@ Every tool has its own page on [alextong.me/toolkit](https://alextong.me/toolkit
 
 The install and update commands for every tool are in [The AI Kitchen](https://alextong.me/kitchen)'s Classroom, next to the changelog. The first lesson in the Claude Code course, "Start here: install the toolkit", has the commands. The AI Kitchen is my free community.
 
-The status line is a script plus one block in `~/.claude/settings.json`, so it has its own steps: [`statusline/INSTALL.md`](./statusline/INSTALL.md).
+The status line installs like the rest, plus one command: a plugin can't set your status line, so after installing, type `/statusline:setup` once. It shows the one change it makes to `~/.claude/settings.json` and waits for your yes. Details: [`statusline/INSTALL.md`](./statusline/INSTALL.md).
 
 ## Updates, changelog, questions
 
@@ -37,8 +37,9 @@ If one of these saved you time, a star tells me which ones to make more of.
 ## What these don't do
 
 Every tool here is read-only on purpose. `claude-md-audit` scores your file and names the exact
-lines to cut, and it never rewrites the file. `skill-banner` and `statusline` only print. `fresh` is the one narrow exception: it writes a single
-file under `~/.claude/fresh/` and your clipboard, nothing else. Otherwise the rule holds: these tools tell
+lines to cut, and it never rewrites the file. `skill-banner` only prints. There are two narrow exceptions. `fresh` writes a single
+file under `~/.claude/fresh/` and your clipboard, nothing else. `statusline` keeps a copy of its script in its own plugin folder, and
+`/statusline:setup` sets one key in your `settings.json` after you say yes. Otherwise the rule holds: these tools tell
 you what is wrong. They do not decide which of those findings actually matter for your situation,
 they do not do the work, and they cannot come back in thirty days to tell you what moved.
 
