@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Claude Code status line — compact two-line
-# Line 1: model  project  branch
+# Line 1: model  effort  project  branch
 # Line 2: context % left   session cost   session duration
 #
 # From The AI Kitchen by Alex Tong — https://alextong.me/kitchen
@@ -16,6 +16,15 @@ project=$(basename "${cwd:-$PWD}")
 branch=$(GIT_OPTIONAL_LOCKS=0 git -C "${cwd:-$PWD}" symbolic-ref --short HEAD 2>/dev/null \
          || GIT_OPTIONAL_LOCKS=0 git -C "${cwd:-$PWD}" rev-parse --short HEAD 2>/dev/null)
 model=$(echo "$input" | jq -r '.model.display_name // .model.id // ""')
+# Effort: the session's level when Claude Code reports it; otherwise the level
+# stamped on the last assistant message in the transcript.
+effort=$(echo "$input" | jq -r '.effort.level // empty')
+if [[ -z "$effort" ]]; then
+  transcript=$(echo "$input" | jq -r '.transcript_path // empty')
+  if [[ -n "$transcript" && -r "$transcript" ]]; then
+    effort=$(tail -c 400000 "$transcript" 2>/dev/null | grep -o '"effort":"[a-z]*"' | tail -1 | cut -d'"' -f4)
+  fi
+fi
 remaining=$(echo "$input" | jq -r '.context_window.remaining_percentage // empty')
 cost=$(echo "$input" | jq -r '.cost.total_cost_usd // empty')
 duration_ms=$(echo "$input" | jq -r '.cost.total_duration_ms // empty')
@@ -50,7 +59,9 @@ case "$model" in
   *haiku*|*Haiku*)   sm="Haiku" ;;
   *)                 sm="$model" ;;
 esac
-printf "${amber}${b}%s${r}  ${white}%s${r}" "$sm" "$project"
+printf "${amber}${b}%s${r}" "$sm"
+[[ -n "$effort" ]] && printf " ${mute}%s${r}" "$effort"
+printf "  ${white}%s${r}" "$project"
 if [[ -n "$branch" ]]; then
   if (( in_worktree )); then
     printf "  ${purple}⌥ %s${r}" "$branch"
