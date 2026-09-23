@@ -36,7 +36,7 @@ The same eight sections every time:
 
 ## When to reach for it
 
-`/compact` is good. It summarises the session into nine sections, including errors and fixes, what you told Claude to do differently, and every message you typed, and you can steer it: `/compact keep the decisions about the schema`. **If the session is going well and you just ran out of room, use `/compact`.** It keeps more, in one command.
+`/compact` is good. It summarizes the session into nine sections, including errors and fixes, what you told Claude to do differently, and every message you typed, and you can steer it: `/compact keep the decisions about the schema`. **If the session is going well and you just ran out of room, use `/compact`.** It keeps more, in one command.
 
 `/fresh` is for the other cases, where keeping more is the problem:
 
