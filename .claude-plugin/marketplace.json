@@ -51,8 +51,8 @@
     {
       "name": "statusline",
       "source": "./statusline",
-      "description": "A two-line status line for Claude Code: model, effort, folder and branch on top; context left, session cost and elapsed time below. The context number turns amber, then red, before Claude starts forgetting.",
-      "version": "1.2.0",
+      "description": "A two-line status line for Claude Code: model, effort, folder and branch on top; context left, session cost and elapsed time below. The context number turns amber, then red, before Claude starts forgetting. Run /statusline:setup once after installing.",
+      "version": "1.3.0",
       "category": "session-tools",
       "keywords": [
         "statusline",

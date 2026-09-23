@@ -1,4 +1,4 @@
-# Status Line  —  v1.2.0
+# Status Line  —  v1.3.0
 
 Replaces the default Claude Code status line with a compact two-line readout:
 
@@ -33,7 +33,9 @@ Recent macOS ships `jq` at `/usr/bin/jq` (it reports as `jq-1.7.1-apple`), so mo
 
 **1. Install the plugin.** The install command is in The AI Kitchen's Classroom with the rest of the toolkit — https://alextong.me/kitchen. From then on, every session start copies the script to `~/.claude/plugins/data/statusline-alex-tong-toolkit/statusline-command.sh`. That folder keeps its path across plugin updates, so `/plugin update` updates your status line too.
 
-**2. Point Claude Code at it.** A plugin can't set your status line for you, so this one step is yours. Open `~/.claude/settings.json` and add the `statusLine` block at the top level, alongside whatever is already in there:
+**2. Run `/statusline:setup`.** A plugin can't set your status line itself, so this command does it for you. It shows the change, waits for your yes, backs up `~/.claude/settings.json`, and sets only its `statusLine` key.
+
+Rather do it by hand? Add this block at the top level of `~/.claude/settings.json`, alongside whatever is already in there:
 
 ```json
 {
@@ -44,11 +46,9 @@ Recent macOS ships `jq` at `/usr/bin/jq` (it reports as `jq-1.7.1-apple`), so mo
 }
 ```
 
-If the file already has other keys, add `statusLine` as one more key — don't replace the file. If `~/.claude/settings.json` doesn't exist yet, create it with exactly the block above.
+**3. Look at the bottom of the terminal.** The status line shows up within a few seconds. If it doesn't, start a new session.
 
-**3. Start a new session.** The first session start copies the script; the status line renders at the bottom of the terminal from then on.
-
-**Uninstalling:** remove the `statusLine` block from `~/.claude/settings.json` too. Uninstalling the plugin deletes the script's folder, so a leftover block points at nothing and the status line goes blank.
+**Uninstalling:** run `/statusline:setup remove` first, or remove the `statusLine` block from `~/.claude/settings.json` yourself. Uninstalling the plugin deletes the script's folder, so a leftover block points at nothing and the status line goes blank.
 
 ## Customizing it
 
