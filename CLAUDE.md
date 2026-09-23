@@ -22,7 +22,8 @@ This repo is **public**. Anything that reaches git history is effectively perman
 
 - **The source of truth, and a plugin marketplace.** (Decided 2026-09-15; it was a mirror of `skool-artifacts` before that.) Every skill, script, and `VERSION` is edited here. `.claude-plugin/marketplace.json` at the root lists each plugin; each plugin folder carries `.claude-plugin/plugin.json`. Users install with `/plugin marketplace add alextongme/alex-tong-toolkit` and get updates with `/plugin update`. The Skool Classroom pages are pointers to this repo, not copies. `~/Documents/webdev/alex-tong/skool-artifacts` is retired for skills; do not sync from it.
 - **Only video-shipped packages are installable.** A package is listed (marketplace entry, root README row) the day its video is live. Until then it lives on a branch here, unmerged — or, when Alex says so, on `main` unlisted with its installer locked behind `--preview` (`session-topics`, 2026-09-22). Releasing it means deleting the lock and listing it.
-- **The Kitchen owns the changelog and Q&A.** Do not add a changelog, discussions, or issue templates here. The README points at [alextong.me/kitchen](https://alextong.me/kitchen) for both.
+- **The Kitchen owns the install commands, the changelog and Q&A.** (Install moved there 2026-09-22.) Do not add a changelog, discussions, or issue templates here, and do not put the marketplace-add or plugin-install commands in any README or `page.md`. The READMEs point at [alextong.me/kitchen](https://alextong.me/kitchen) for all three. The gate is soft on purpose: the manifest and the code stay public, so anyone who can read them can install. The target audience can't, and the code stays checkable.
+- **alextong.me renders each listed package's `page.md` as its page** at `alextong.me/toolkit/<package>` (2026-09-22). The site fetches `.claude-plugin/marketplace.json` and each `page.md` from `main` on GitHub and refreshes within an hour, so a merge here updates the site with no site commit. **Listing a package in the marketplace publishes its page.** The site's loader is `src/lib/toolkit.ts` in the `alextong.me` repo.
 
 ## Layout
 
@@ -30,7 +31,8 @@ This repo is **public**. Anything that reaches git history is effectively perman
 .claude-plugin/marketplace.json   the marketplace: one entry per plugin, with its version
 <package>/                 one folder per published video
   .claude-plugin/plugin.json  plugin manifest; version must match VERSION and the marketplace entry
-  README.md                what a user reads, and what GitHub renders when they open the folder; marketplace install first, manual copy second. (Scripts still use INSTALL.md.)
+  page.md                  the package's page on alextong.me/toolkit/<package>; the full explanation lives here, see "page.md contract" below
+  README.md                the GitHub stub: one-line description, version line, link to the page, "install lives in the Kitchen", Versions list. (Scripts still use INSTALL.md.)
   VERSION                  semver; the human-readable copy of the version in plugin.json
   skills/<name>/SKILL.md   the skill, when the package is a skill
   *.sh                     the script, when it is a script (scripts are not plugins; they install by copy)
@@ -39,17 +41,31 @@ scripts/scan-safety.js     the safety scanner (credential formats and generic pa
 .githooks/pre-commit       runs the scanner on staged files, opt-in
 ```
 
+## page.md contract
+
+`page.md` is rendered on alextong.me as the package's page. It is written as a page, not as a README.
+
+- **Frontmatter:** `title` (the display name, e.g. `CLAUDE.md Audit`). Optional `video` (a YouTube URL) and `video_title`, only once the video is public. The page's lede is the package's `description` in `marketplace.json`, so there is one description, not two.
+- **Map group and type.** The site's map groups plugins by job, from the plugin's `category` in `marketplace.json` (lowercase, hyphenated: `audits`, `session-tools`; the site shows "Session tools"). Group by what the tool is for, never by what it is. What it is goes in `page.md` frontmatter as `kind: skill`, `kind: hook` or `kind: script`, shown as a tag on its row; it defaults to `skill`. A plugin that only installs hooks, like `skill-banner`, is `kind: hook`.
+- **A plugin with several skills** lists them in its frontmatter, in the order the map shows them: `skills: [seo-audit, seo-setup]`. Each listed skill gets its own page from `<package>/skills/<skill>/page.md`, which follows this same contract plus a required `description` (the skill page's lede). The plugin's `page.md` becomes the group's Overview. The site's left-side map shows plugins as numbered groups and their skills as 2.1, 2.2 under them. It cannot discover skills from the folder, so a skill that isn't listed has no page. A listed skill without a `page.md` fails the site build, and so does a skill that lists skills of its own.
+- **Every page shares one flat URL space,** `alextong.me/toolkit/<slug>`, whether it is a plugin or a skill. A skill's slug must never match another plugin's or skill's; the site's build fails if two pages share one. Once a URL is in a video description it is permanent, so never rename a slug that has shipped.
+- **Four `##` sections, exact text:** `What it does`, `When to reach for it`, `What it touches` (every file read and written, every network call, or the line that there are none), and `It's working if`. Any other `##` section is fine and renders in file order.
+- **Never an install or update command.** The site's test suite fails the build if the page contains `/plugin marketplace add` or `/plugin install`.
+- **CommonMark only.** No tables, no raw HTML, no bare URLs. The site renders without GitHub-flavored markdown and strips HTML. Use lists instead of tables and `[text](url)` for links.
+- **Voice:** the site's public copy rules apply. No em dashes, contractions, plain words.
+- **Credit goes in a `## References` section at the end:** one linked line per source with a few words on why it's there, no narrative about the inspiration (Alex, 2026-09-22). This is how hard rule 2's "name public sources" is met on a page.
+
 ## Releasing a version
 
 1. Edit the skill. Bump the version in **three places, all the same string**: `<package>/VERSION`, `<package>/.claude-plugin/plugin.json`, and the plugin's entry in `.claude-plugin/marketplace.json`. Users only receive an update when the version field changes.
-2. Update the version in the package's `README.md` header and its Versions list, and, if anything about the install changed, its steps.
+2. Update the version in the package's `README.md` header and its Versions list. If the change alters what the package does, touches or prints, update its `page.md` in the same commit, because the site shows that file.
 3. Commit on a branch in a worktree under `.claude/worktrees/`, merge to `main`, remove the worktree.
-4. Post the one-line changelog in the Kitchen and update the version shown on the package's Classroom page.
+4. Post the one-line changelog in the Kitchen and update the version shown on the package's Classroom page. If the install steps changed, update the Kitchen's install lesson.
 
 ## Adding the next video's package
 
 1. Confirm the video is public.
-2. Create the folder with `skills/`, `README.md`, `VERSION`, and `.claude-plugin/plugin.json`; add its entry to `.claude-plugin/marketplace.json`.
+2. Create the folder with `skills/`, `page.md`, `README.md`, `VERSION`, and `.claude-plugin/plugin.json`; add its entry to `.claude-plugin/marketplace.json`. The marketplace entry is what puts its page on alextong.me, so `page.md` has to be ready first.
 3. Add its row to the root README and, if the install differs from the marketplace commands, one sentence pointing at its folder.
 4. Release as above.
 
@@ -97,4 +113,4 @@ Default is inline questions, multiple choice plus free text. When a skill genuin
 
 - Skills use `model: inherit`. A pinned model silently switches the user's session model for the turn, and a plan that lacks the pinned model falls back anyway. If a skill genuinely needs a stronger model, say so in its `README.md` instead of pinning.
 - Read-only skills declare `disallowed-tools` for `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, and `Bash`. `allowed-tools` only pre-approves tools; it never restricts them, so never describe a skill as read-only on the strength of `allowed-tools` alone.
-- Attribution inside a skill points at The AI Kitchen, never at `alextong.me/toolkit` (dead) or the newsletter.
+- Attribution inside a skill points at The AI Kitchen, never at `alextong.me/toolkit` or the newsletter. The Kitchen is where a user of an installed skill goes for updates and questions.

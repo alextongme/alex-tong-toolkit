@@ -13,7 +13,7 @@
       "source": "./claude-md-audit",
       "description": "Scores every CLAUDE.md and .claude/rules file in a repo out of 11 and names the exact lines to cut. Read-only during the audit.",
       "version": "1.0.3",
-      "category": "productivity",
+      "category": "audits",
       "keywords": [
         "claude-md",
         "context",
@@ -26,7 +26,7 @@
       "source": "./fresh",
       "description": "The restart for when context is running low, polluted, or the session went sideways: writes a short resume prompt from the conversation and live git state and puts it on your clipboard; you type /clear and paste it. Writes one file under ~/.claude/fresh/ and nothing else.",
       "version": "2.0.0",
-      "category": "productivity",
+      "category": "session-tools",
       "keywords": [
         "fresh",
         "restart",
@@ -38,9 +38,9 @@
     {
       "name": "skill-banner",
       "source": "./skill-banner",
-      "description": "Prints a RUNNING SKILL banner with the skill's name the moment a skill starts — the one you typed, or the one Claude picked on its own. Two hooks, one script, writes nothing.",
+      "description": "Prints a RUNNING SKILL banner with the skill's name the moment a skill starts, whether you typed the command or Claude picked the skill on its own. Two hooks, one script, writes nothing.",
       "version": "1.0.1",
-      "category": "productivity",
+      "category": "session-tools",
       "keywords": [
         "skill",
         "banner",
