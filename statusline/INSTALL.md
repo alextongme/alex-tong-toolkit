@@ -1,13 +1,13 @@
-# Status Line  —  v1.0.0
+# Status Line  —  v1.1.0
 
 Replaces the default Claude Code status line with a compact two-line readout:
 
 ```
-Opus  my-project  main
+Opus high  my-project  main
 82% left  $1.47  14m
 ```
 
-**Line 1** — model, project folder, git branch. A branch in a worktree shows as `⌥ branch` in purple, so you always know which tree you're in.
+**Line 1** — model, effort level, project folder, git branch. A branch in a worktree shows as `⌥ branch` in purple, so you always know which tree you're in.
 
 **Line 2** — how much context window is left (green above 50%, amber above 20%, red below), what this session has cost you so far, and how long it's been running. Each piece only appears when Claude Code reports it, so a fresh session stays quiet.
 

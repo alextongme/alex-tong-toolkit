@@ -20,7 +20,7 @@ Every tool has its own page on [alextong.me/toolkit](https://alextong.me/toolkit
 |---|---|---|
 | [`fresh`](https://alextong.me/toolkit/fresh?utm_source=github&utm_medium=bio&utm_campaign=evergreen&utm_content=post-body) ([code](./fresh)) | skill | The restart for when context is running low, polluted, or the session went sideways. Writes a short resume prompt from the conversation and live git state and puts it on your clipboard. You type `/clear` and paste it. Writes one file under `~/.claude/fresh/` and nothing else. |
 | [`skill-banner`](https://alextong.me/toolkit/skill-banner?utm_source=github&utm_medium=bio&utm_campaign=evergreen&utm_content=post-body) ([code](./skill-banner)) | hook | Prints a `RUNNING SKILL` banner with the skill's name the moment a skill starts, whether you typed the command or Claude picked the skill on its own. Two hooks, one script, writes nothing. |
-| [`statusline`](./statusline) | script | A two-line status line: model, folder and branch on top; context left, session cost and elapsed time below. Turns red before Claude starts forgetting. From [Your auto-generated CLAUDE.md is worse than no file at all](https://youtu.be/YD4PVx3ygDQ). |
+| [`statusline`](https://alextong.me/toolkit/statusline?utm_source=github&utm_medium=bio&utm_campaign=evergreen&utm_content=post-body) ([code](./statusline)) | script | A two-line status line: model, effort, folder and branch on top; context left, session cost and elapsed time below. Turns red before Claude starts forgetting. From [Your auto-generated CLAUDE.md is worse than no file at all](https://youtu.be/YD4PVx3ygDQ). |
 
 ## Install
 
