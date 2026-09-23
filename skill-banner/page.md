@@ -34,7 +34,7 @@ I had this as a CLAUDE.md rule first: "print a banner when you run a skill." A r
 
 - **Writes** nothing. No files, no network calls. It needs bash, grep and sed, and nothing else. It runs on macOS and Linux.
 - **Never blocks** Claude Code. Every exit is `0`, and `hooks.json` wraps the script in `|| true`.
-- **Asks** nothing. There's nothing to customise: the banner is the whole product.
+- **Asks** nothing. There's nothing to customize: the banner is the whole product.
 - **Ignores** a pasted path such as `/tmp/notes.md`. That isn't a command, so the script stays quiet on it.
 
 ## It's working if
