@@ -1,4 +1,4 @@
-# Status Line  —  v1.1.0
+# Status Line  —  v1.2.0
 
 Replaces the default Claude Code status line with a compact two-line readout:
 
@@ -31,31 +31,28 @@ Recent macOS ships `jq` at `/usr/bin/jq` (it reports as `jq-1.7.1-apple`), so mo
 
 ## Install (about a minute)
 
-**1. Copy the script into your Claude config folder and make it executable.** From the root of a clone of this repo:
+**1. Install the plugin.** The install command is in The AI Kitchen's Classroom with the rest of the toolkit — https://alextong.me/kitchen. From then on, every session start copies the script to `~/.claude/plugins/data/statusline-alex-tong-toolkit/statusline-command.sh`. That folder keeps its path across plugin updates, so `/plugin update` updates your status line too.
 
-```bash
-cp statusline/statusline-command.sh ~/.claude/statusline-command.sh
-chmod +x ~/.claude/statusline-command.sh
-```
-
-**2. Point Claude Code at it.** Open `~/.claude/settings.json` and add the `statusLine` block at the top level, alongside whatever is already in there:
+**2. Point Claude Code at it.** A plugin can't set your status line for you, so this one step is yours. Open `~/.claude/settings.json` and add the `statusLine` block at the top level, alongside whatever is already in there:
 
 ```json
 {
   "statusLine": {
     "type": "command",
-    "command": "bash ~/.claude/statusline-command.sh"
+    "command": "bash ~/.claude/plugins/data/statusline-alex-tong-toolkit/statusline-command.sh"
   }
 }
 ```
 
 If the file already has other keys, add `statusLine` as one more key — don't replace the file. If `~/.claude/settings.json` doesn't exist yet, create it with exactly the block above.
 
-**3. Restart Claude Code.** The status line renders at the bottom of the terminal.
+**3. Start a new session.** The first session start copies the script; the status line renders at the bottom of the terminal from then on.
+
+**Uninstalling:** remove the `statusLine` block from `~/.claude/settings.json` too. Uninstalling the plugin deletes the script's folder, so a leftover block points at nothing and the status line goes blank.
 
 ## Customizing it
 
-It's a bash script — everything is editable, and the four things people usually change are:
+It's a bash script — everything is editable. The plugin overwrites its copy at `~/.claude/plugins/data/statusline-alex-tong-toolkit/statusline-command.sh` on every session start, so edit your own copy instead: `cp ~/.claude/plugins/data/statusline-alex-tong-toolkit/statusline-command.sh ~/.claude/statusline-command.sh`, then point the `statusLine` block at `~/.claude/statusline-command.sh`. Your copy won't get updates after that. The four things people usually change are:
 
 - **Colors** — the block near the top under `── Colors ──`. They're 24-bit RGB escapes (`\033[38;2;R;G;Bm`), so any hex color drops straight in.
 - **The context thresholds** — the `pct > 50` and `pct > 20` lines decide when green becomes amber becomes red.
@@ -68,9 +65,11 @@ To test a change without restarting, pipe fake state at it:
 echo '{"cwd":"'"$PWD"'","model":{"display_name":"Opus"},"context_window":{"remaining_percentage":42},"cost":{"total_cost_usd":1.23,"total_duration_ms":840000}}' | bash ~/.claude/statusline-command.sh
 ```
 
+(Point that at whichever copy you're testing.)
+
 ## Updating
 
-`git pull` in your clone, then copy the script again. **The AI Kitchen posts a one-line changelog every time a version lands** — https://alextong.me/kitchen
+`/plugin update`. The next session start copies the new script into place; nothing else to do. **The AI Kitchen posts a one-line changelog every time a version lands** — https://alextong.me/kitchen
 
 Your version: see `VERSION` in this folder.
 
@@ -80,7 +79,7 @@ Your version: see `VERSION` in this folder.
 - **Line 1 is fine but the context percentage or cost never appears.** Your Claude Code version isn't reporting `context_window` or `cost` in the status line payload. Update Claude Code.
 - **Nothing appears at all.** The `statusLine` block isn't being read. Check `~/.claude/settings.json` is valid JSON (`jq . ~/.claude/settings.json` will tell you), and that you restarted Claude Code.
 - **Colors look wrong or show as raw escape codes.** Your terminal doesn't support 24-bit color. iTerm2, Ghostty, Alacritty, WezTerm, and modern Terminal.app all do; older setups may not.
-- **`permission denied`.** You skipped `chmod +x`.
+- **Blank status line right after installing.** The copy happens on session start, so start a new session.
 
 ---
 

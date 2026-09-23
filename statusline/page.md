@@ -26,12 +26,13 @@ The branch is the other reason. If you run more than one session, or work in wor
 
 - **Reads** the session state Claude Code pipes in on every render, and your git branch in the current folder.
 - **Reads** the end of the session's own transcript file, only when Claude Code doesn't report the effort level directly.
-- **Writes** nothing. No files, no network calls.
+- **Writes** one file: at every session start, a hook copies the script to `~/.claude/plugins/data/statusline-alex-tong-toolkit/statusline-command.sh`. That folder survives plugin updates, which is how an update reaches your status line. It never touches your `settings.json`. No network calls.
 - **Needs** bash and `jq`. Recent macOS already ships `jq`.
+- **Asks** you to add one `statusLine` block to your `settings.json` yourself, because a plugin can't set your status line. The Kitchen's install lesson has the block.
 - It's one bash script with the colors in a block at the top, so every color, threshold and piece of it is yours to change.
 
 ## It's working if
 
-- Two lines show at the bottom of Claude Code after you restart it.
+- Two lines show at the bottom of Claude Code once you've added the block and started a new session.
 - The context percentage drops as the session goes on, and changes color at 50% and 20%.
 - You see the folder and branch but no model and an empty second line: that means `jq` is missing.
