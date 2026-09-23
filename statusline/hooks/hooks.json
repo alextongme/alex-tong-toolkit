@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mkdir -p \"${CLAUDE_PLUGIN_DATA}\" && cp \"${CLAUDE_PLUGIN_ROOT}/statusline-command.sh\" \"${CLAUDE_PLUGIN_DATA}/statusline-command.sh\" && chmod 600 \"${CLAUDE_PLUGIN_DATA}/statusline-command.sh\" || true"
+          }
+        ]
+      }
+    ]
+  }
+}
