@@ -1,6 +1,6 @@
 # SEO Audit
 
-**Version 1.2.0** · two Claude Code skills · no account required · MIT
+**Version 1.3.0** · two Claude Code skills · no account required · MIT
 
 Audits what search engines and AI assistants can actually see on your site, then
 freezes a dated snapshot so the same command in 30 days produces a real
@@ -178,6 +178,21 @@ Two things that catch people, and neither error message says so:
 
 ## Versions
 
+- **1.3.0**: `--max-pages` samples across the site instead of taking the first N
+  URLs in sitemap order, which on a sectioned site was the first section and nothing
+  else (on a large sectioned site, 2026-09-24, the first 2,000 never reached four
+  of its five sections). URLs are grouped by first path segment, each group gets a share, and
+  picks are hash-ordered so a re-run fetches the same pages; `sitemap.strata`
+  records the split. On a sample, orphans and inbound links are `null` instead of
+  false zeros, `linkedNotInSitemap` checks against the whole sitemap, and `compare`
+  diffs only pages both samples hold, with no false "page gone".
+- **1.2.1**: Three fixes found on a site too large to crawl. `--max-pages 2000` was refused
+  because the number typed equalled the ceiling; any explicit value is now a sample.
+  A `capture` whose crawl fails now ends on a red "Snapshot INCOMPLETE", exits 1
+  and writes `complete: false` to the manifest, where it used to print a green
+  "Snapshot written" over a folder with no `onpage.json`. Bing's endpoint count is
+  read from the response (five, since `feeds` was added) instead of a hard-coded
+  four, so all five refusing reads "unavailable", not "partial, -1/4".
 - **1.2.0** — The snapshot now reads what each page says about itself:
   `datePublished`, `dateModified` and `author` per page, from the page's own
   JSON-LD with `article:published_time` as the fallback. Four new summary

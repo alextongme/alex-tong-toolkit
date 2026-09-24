@@ -39,7 +39,7 @@
 //   whether it still works.
 
 import { execFileSync } from "node:child_process";
-import { createSign } from "node:crypto";
+import { createHash, createSign } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import {
@@ -1391,7 +1391,69 @@ const CRAWLER_UA = "seo-audit-snapshot/1 (+https://github.com/alextongme/alex-to
 // warns about everywhere else. It refuses and makes the sample a choice.
 const MAX_CRAWL_PAGES = 2000;
 
-async function crawlSite(base, { concurrency = 8, site = base, maxPages = MAX_CRAWL_PAGES } = {}) {
+// How a sample is drawn when --max-pages is below the sitemap total. It used to
+// be the first N URLs in sitemap order, which on a sectioned site is the first
+// section and nothing else: on a large sectioned site (2026-09-24) the first
+// 2,000 URLs were the hub pages and the start of the first section, and four of
+// its five sections were never fetched at all. Now:
+//   - URLs are grouped by first path segment (/usc/26/61 -> /usc). Single-segment
+//     pages (/about, /usc itself) share one "top level" group, so a site whose
+//     posts live at /<slug>/ is one group rather than thousands of one-page ones.
+//   - every group gets a floor, then the rest is split by group size;
+//   - within a group, URLs are taken in order of a hash of their path, so a
+//     re-run in 30 days picks the same pages and `compare` has pairs to diff.
+function sectionOf(url) {
+  let segs;
+  try { segs = new URL(url).pathname.split("/").filter(Boolean); } catch { return "(top level)"; }
+  return segs.length >= 2 ? `/${segs[0]}` : "(top level)";
+}
+function stableRank(url) {
+  let path;
+  try { const u = new URL(url); path = u.pathname + u.search; } catch { path = url; }
+  return createHash("sha1").update(path).digest("hex");
+}
+function stratifiedSample(all, n) {
+  const groups = new Map();
+  for (const u of all) {
+    const k = sectionOf(u);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(u);
+  }
+  const list = [...groups.entries()].map(([section, urls]) => ({ section, urls, take: 0 }))
+    .sort((a, b) => b.urls.length - a.urls.length);
+  if (list.length > n) {
+    // More groups than pages to spend: one each from the largest groups.
+    list.forEach((g, i) => { g.take = i < n ? 1 : 0; });
+  } else {
+    const floor = Math.max(1, Math.min(10, Math.floor(n / (list.length * 2))));
+    for (const g of list) g.take = Math.min(g.urls.length, floor);
+    let left = n - list.reduce((s, g) => s + g.take, 0);
+    const cap = (g) => g.urls.length - g.take;
+    const totalCap = list.reduce((s, g) => s + cap(g), 0);
+    if (left > 0 && totalCap > 0) {
+      const shares = list.map((g) => {
+        const exact = (left * cap(g)) / totalCap;
+        return { g, whole: Math.min(cap(g), Math.floor(exact)), frac: exact % 1 };
+      });
+      for (const s of shares) { s.g.take += s.whole; left -= s.whole; }
+      for (const s of shares.sort((a, b) => b.frac - a.frac)) {
+        if (left <= 0) break;
+        if (cap(s.g) > 0) { s.g.take += 1; left -= 1; }
+      }
+    }
+  }
+  const urls = [];
+  const strata = [];
+  for (const g of list) {
+    const picked = g.urls.map((u) => [stableRank(u), u]).sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .slice(0, g.take).map(([, u]) => u);
+    urls.push(...picked);
+    strata.push({ section: g.section, inSitemap: g.urls.length, sampled: picked.length });
+  }
+  return { urls, strata };
+}
+
+async function crawlSite(base, { concurrency = 8, site = base, maxPages } = {}) {
   // robots.txt first. It was already being fetched — just after the crawl that
   // needed it — and it is where a site declares where its real sitemap lives.
   const robotsRes = await fetchWithRetry(`${base}/robots.txt`).catch(() => null);
@@ -1403,17 +1465,21 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages = MAX_CR
   // production one, so rewrite sitemap hosts onto whatever base we were given.
   const all = sitemapUrls.map((u) => (base === site ? u : u.replace(site, base)));
 
-  if (all.length > maxPages && maxPages === MAX_CRAWL_PAGES) {
+  // Refuse only when nobody chose a sample size. Comparing against the ceiling
+  // instead (fixed 2026-09-24) refused an explicit `--max-pages 2000`, because
+  // the number typed was the ceiling itself.
+  if (maxPages === undefined && all.length > MAX_CRAWL_PAGES) {
     throw new Error(
-      `${all.length} URLs in the sitemap, above the ${maxPages}-page ceiling.\n` +
+      `${all.length} URLs in the sitemap, above the ${MAX_CRAWL_PAGES}-page ceiling.\n` +
       `  Re-run with --max-pages <n> to crawl a sample. The report will say it was a sample,\n` +
       `  and its findings will describe those pages rather than the site.`
     );
   }
-  const sampled = all.length > maxPages;
-  const urls = sampled ? all.slice(0, maxPages) : all;
+  const sampled = maxPages !== undefined && all.length > maxPages;
+  const sample = sampled ? stratifiedSample(all, maxPages) : null;
+  const urls = sampled ? sample.urls : all;
   if (sampled) {
-    console.log(warn(`  sampling ${urls.length} of ${all.length} sitemap URLs — findings describe the sample, not the site`));
+    console.log(warn(`  sampling ${urls.length} of ${all.length} sitemap URLs across ${sample.strata.length} section(s) — findings describe the sample, not the site`));
   }
 
   // How fast is this site willing to be read? Answering it costs one line and
@@ -1489,11 +1555,13 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages = MAX_CR
   }
   for (const page of fetched) {
     const self = normalizeLink(page.finalUrl || page.url, base);
-    page.inboundLinks = inbound.get(self)?.size ?? 0;
+    // On a sample the link graph only covers the sampled pages, so a count here
+    // would call nearly every page an orphan. Unknown, not zero.
+    page.inboundLinks = sampled ? null : inbound.get(self)?.size ?? 0;
   }
   // De-duplicated: a sitemap URL that 301s to another sitemap URL used to list the
   // destination twice (seen 2026-09-24: 124 entries for 123 pages).
-  const orphans = [...new Set(fetched
+  const orphans = sampled ? null : [...new Set(fetched
     .filter((p) => p.inboundLinks === 0 && (p.finalUrl || p.url) !== base && (p.finalUrl || p.url) !== `${base}/`)
     .map((p) => p.finalUrl || p.url))];
 
@@ -1502,7 +1570,9 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages = MAX_CR
   // saw — a header-nav catalog page nobody added to the sitemap (seen 2026-09-24)
   // — and the inbound graph is the only place they
   // surface. Assets and CMS plumbing are dropped; what is left is a page list.
-  const inSitemap = new Set(urls.map((u) => normalizeLink(u, base)));
+  // Against the whole sitemap, not the sample: a page the sample skipped is
+  // still in the sitemap.
+  const inSitemap = new Set(all.map((u) => normalizeLink(u, base)));
   const ASSET_RE = /\.(png|jpe?g|gif|svg|webp|avif|ico|pdf|css|js|mjs|json|xml|txt|mp4|mp3|zip|woff2?)$/i;
   const linkedNotInSitemap = [...inbound.entries()]
     .filter(([t]) => t.startsWith(base) && !inSitemap.has(t) && !ASSET_RE.test(t)
@@ -1542,6 +1612,10 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages = MAX_CR
       // sample, and no figure in this snapshot describes the whole site.
       total: all.length,
       sampled,
+      // How the sample was drawn and how much of each section it holds. null
+      // when the whole list was crawled.
+      sampleMethod: sampled ? "stratified by first path segment, hash-ordered within each section" : null,
+      strata: sampled ? sample.strata : null,
       crawlDelay,
     },
     robots,
@@ -1803,7 +1877,7 @@ async function captureBing(site) {
       out[name] = { error: String(err.message || err) };
     }
   }
-  // Which of the four endpoints actually answered. Writing a file is not the
+  // Which of the endpoints actually answered. Writing a file is not the
   // same as capturing data: on 2026-09-19 all four returned
   // `{ErrorCode: 14, Message: "ERROR!!! NotAuthorized"}`, bing.json was written,
   // and the run printed a green "bing captured" — the plugin committing its own
@@ -2060,25 +2134,41 @@ async function capture(cfg, flags) {
     if (bing.skipped) {
       console.log(warn(`  bing       skipped (${bing.skipped})`));
       manifest.skipped.push({ source: "bing", reason: bing.skipped });
-    } else if (bing.failed?.length === 4) {
+    } else if (bing.failed?.length && bing.failed.length === Object.keys(bing.endpoints).length) {
       // Every endpoint refused. The file exists and holds nothing usable, so it
       // is a gap in coverage, never a zero — and the manifest has to say so,
       // because a later compare reads the manifest, not the console.
       const why = bing.endpoints.rankAndTraffic;
-      console.log(warn(`  bing       unavailable — all 4 endpoints refused (${why})`));
-      manifest.skipped.push({ source: "bing", reason: `all 4 endpoints refused: ${why}` });
+      const n = bing.failed.length;
+      console.log(warn(`  bing       unavailable — all ${n} endpoints refused (${why})`));
+      manifest.skipped.push({ source: "bing", reason: `all ${n} endpoints refused: ${why}` });
       manifest.captured.push("bing.json");
     } else if (bing.failed?.length) {
-      console.log(warn(`  bing       partial — ${4 - bing.failed.length}/4 endpoints (failed: ${bing.failed.join(", ")})`));
+      const n = Object.keys(bing.endpoints).length;
+      console.log(warn(`  bing       partial — ${n - bing.failed.length}/${n} endpoints (failed: ${bing.failed.join(", ")})`));
       manifest.captured.push("bing.json");
     } else {
-      console.log(ok("  bing       captured (4/4 endpoints)"));
+      const n = Object.keys(bing.endpoints).length;
+      console.log(ok(`  bing       captured (${n}/${n} endpoints)`));
       manifest.captured.push("bing.json");
     }
   }
 
+  // A baseline without its crawl is not a baseline. On 2026-09-24 the crawl
+  // refused a sitemap far over the ceiling, psi and bing still ran, and the run ended on
+  // a green "Snapshot written" over a folder with no onpage.json in it. Say it
+  // in the manifest (compare reads that, not the console) and in the last line.
+  const onpageFailed = manifest.skipped.find((s) => s.source === "onpage" && s.reason !== "--skip");
+  manifest.complete = !onpageFailed;
   writeJSON(join(dir, "manifest.json"), manifest);
-  console.log(`\n${ok("Snapshot written")} → ${dir}\n`);
+  if (onpageFailed) {
+    console.log(`\n${bad("Snapshot INCOMPLETE — no on-page crawl")} → ${dir}`);
+    console.log(bad(`  ${onpageFailed.reason.split("\n")[0]}`));
+    console.log(warn(`  Fix that and re-run with the same --label; the folder is overwritten.\n`));
+    process.exitCode = 1;
+  } else {
+    console.log(`\n${ok("Snapshot written")} → ${dir}\n`);
+  }
   return dir;
 }
 
@@ -2240,6 +2330,11 @@ function compare(cfg, labelA, labelB) {
     // not tell you which page broke, and the page that broke is the whole
     // reason for keeping a baseline. Each rule names one transition and what
     // it costs, so the reader is not left diffing two numbers by eye.
+    // Two samples are two lists, not one site at two dates. A page in one sample
+    // and not the other says nothing about whether it still exists, so on a
+    // sample only the pages both snapshots hold are diffed.
+    const eitherSampled = Boolean(oA.sitemap?.sampled || oB.sitemap?.sampled);
+    if (eitherSampled) say(warn("  sampled snapshot: totals describe the samples; per-URL rules run only on pages in both"));
     const byUrlA = new Map(oA.pages.map((p) => [p.url.replace(oA.base, ""), p]));
     const seenB = new Set();
     const findings = [];
@@ -2251,7 +2346,7 @@ function compare(cfg, labelA, labelB) {
       const key = p.url.replace(oB.base, "");
       seenB.add(key);
       const a = byUrlA.get(key);
-      if (!a) { add("info", "page added", key); continue; }
+      if (!a) { if (!eitherSampled) add("info", "page added", key); continue; }
       if (a.error || p.error) continue; // a page we could not read is not a page that changed
 
       if (a.status === 200 && p.status !== 200) add("critical", "status regressed", key, `${a.status} → ${p.status}`);
@@ -2271,7 +2366,7 @@ function compare(cfg, labelA, labelB) {
       if (a.title && p.title && a.title !== p.title) add("info", "title changed", key, `${a.title} → ${p.title}`);
       if (a.description && p.description && a.description !== p.description) add("info", "description changed", key);
     }
-    for (const [key] of byUrlA) if (!seenB.has(key)) add("critical", "page gone", key, "in the earlier sitemap, absent now");
+    if (!eitherSampled) for (const [key] of byUrlA) if (!seenB.has(key)) add("critical", "page gone", key, "in the earlier sitemap, absent now");
 
     if (findings.length) {
       const order = { critical: 0, warning: 1, info: 2 };

@@ -1,7 +1,7 @@
 {
   "name": "seo-audit",
   "description": "Audits a site's search and AI-assistant visibility with no credentials on the first turn, freezes a dated baseline you can diff later, and reports which AI crawlers can actually read the site.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": {
     "name": "Alex Tong",
     "url": "https://alextong.me"

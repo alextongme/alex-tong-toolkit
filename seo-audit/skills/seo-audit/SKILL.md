@@ -188,6 +188,16 @@ wrong-list failure this skill warns about everywhere else.
 always somebody's decision. This is not only a big-site rule: a twenty-year-old
 one-person blog measured on 2026-09-19 carried 53,628 URLs.
 
+**A sample is spread across the site's sections, and it is the same sample next
+time.** URLs are grouped by first path segment (`/blog`, `/usc`, `/products`),
+every group gets a share, and within a group the pages are picked by a hash of
+their path, so a re-run in 30 days fetches the same pages. `sitemap.strata` says
+how many were drawn from each section; put that table in the report. On a sample,
+three things are **unknown, not zero**: `summary.orphanPages` is `null`, every
+page's `inboundLinks` is `null` (the link graph only covers the sampled pages),
+and `compare` diffs only the pages both samples hold and never reports "page
+gone". Say that orphans were not measured, and why.
+
 **Then read `coverage.byClass` before you explain the number.** Every fetch is
 classed `ok`, `blocked`, `rate_limited` or `error`, and low coverage means
 opposite things depending on which one dominates:
