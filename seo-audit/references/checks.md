@@ -149,6 +149,8 @@ is the same failure as an unavailable source reported as a zero.
 | 49 | **Inbound internal links exist from a real page, not only the sitemap** | `auto` — the doorway check, counted per URL from the link graph |
 | 50 | The link runs both directions between the hub and the page | `manual` |
 | 51 | No orphan pages in the sitemap | `auto` — zero inbound links from any other crawled page |
+| 51a | **Every page the site links to is in the sitemap** — `summary.linkedNotInSitemap`, the inverse of an orphan. The crawl only fetches sitemap URLs, so a nav or CTA page nobody added to the sitemap (a booking page linked from every page on the site) only shows up here | `auto` — assets, date archives and pagination excluded |
+| 51b | **No sitemap URL redirects** — `summary.sitemapRedirects`. A sitemap lists destinations, not doors; each entry is a URL to replace | `auto` |
 | 52 | No links to 404s or redirect chains | `manual` — links are collected, not followed |
 
 ## 10. External linking
@@ -266,9 +268,9 @@ the ask is reasonable. Just never bill it as a visibility win.
 
 | # | Item | Status |
 |---|---|---|
-| 71 | Named author, not "admin" or the brand alone | `manual` |
+| 71 | Named author, not "admin" or the brand alone — `summary.authorEntities` lists every author the pages declare, with its schema type and page count. A `Person` whose name is a company, an agency account or a placeholder (an agency account named as the author of 249 posts, 2026-09-24) is the finding; whether the name is a real person is the reader's call | `auto` (declared author) + `manual` (is it a real person) |
 | 72 | Author credentials stated, and an author page exists | `manual` |
-| 73 | Published date and last-updated date both present | `manual` |
+| 73 | Published date and last-updated date both present — per page as `datePublished` / `dateModified` from the page's own JSON-LD or `article:published_time`; `summary.publishedByYear` ages a section without a second crawl. `unknown` means the page declares no date, which is itself the finding | `auto` |
 | 74 | First-hand evidence on the page: a number, a screenshot, an outcome | `manual` |
 | 75 | Claims that need a source have one | `manual` |
 
