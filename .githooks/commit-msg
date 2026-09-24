@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Commit-msg hook: run the same safety scanner over the commit message.
+#
+# Commit messages are public the moment this repo is pushed, and they are the
+# easiest place to leak what a fix came from ("found on <client>.com"). The
+# pre-commit hook only sees staged files, so this closes that gap. Merge
+# commits run it too. `git commit-tree` does not run hooks, so anything built
+# that way gets `node scripts/scan-safety.js <msgfile>` by hand.
+set -eu
+if ! command -v node >/dev/null 2>&1; then
+  echo "warn: commit-msg safety scan skipped — node not on PATH" >&2
+  exit 0
+fi
+node scripts/scan-safety.js "$1"

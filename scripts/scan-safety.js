@@ -126,9 +126,27 @@ const WARN = [
 // Local-only extra patterns (optional, gitignored)
 // ---------------------------------------------------------------------------
 
+function localPatternPath() {
+  const name = ".safety-scan-local.txt";
+  if (fs.existsSync(name)) return name;
+  // The file is gitignored, so it does not exist inside a git worktree, and every
+  // session here works in one. Without this fallback the scan silently ran with
+  // no local patterns in any worktree (found 2026-09-24). Read the main
+  // checkout's copy instead.
+  try {
+    const common = require("child_process")
+      .execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8" })
+      .trim();
+    const main = path.join(path.dirname(common), name);
+    if (fs.existsSync(main)) return main;
+  } catch {}
+  console.warn(`warn   no ${name} found here or in the main checkout: client and personal patterns are NOT being checked`);
+  return null;
+}
+
 function loadLocalPatterns() {
-  const localPath = ".safety-scan-local.txt";
-  if (!fs.existsSync(localPath)) return [];
+  const localPath = localPatternPath();
+  if (!localPath) return [];
   const lines = fs
     .readFileSync(localPath, "utf8")
     .split("\n")
