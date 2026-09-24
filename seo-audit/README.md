@@ -1,6 +1,6 @@
 # SEO Audit
 
-**Version 1.0.0** · two Claude Code skills · no account required · MIT
+**Version 1.2.0** · two Claude Code skills · no account required · MIT
 
 Audits what search engines and AI assistants can actually see on your site, then
 freezes a dated snapshot so the same command in 30 days produces a real
@@ -178,6 +178,19 @@ Two things that catch people, and neither error message says so:
 
 ## Versions
 
+- **1.2.0** — The snapshot now reads what each page says about itself:
+  `datePublished`, `dateModified` and `author` per page, from the page's own
+  JSON-LD with `article:published_time` as the fallback. Four new summary
+  fields follow from that and from the link graph: `authorEntities` (every
+  declared author with its schema type and page count, so a `Person` that is
+  really a brand or an agency account is visible), `publishedByYear`,
+  `linkedNotInSitemap` (pages the site links to that the sitemap omits, the
+  inverse of an orphan) and `sitemapRedirects` (sitemap URLs that 301). The
+  orphan list is de-duplicated when a sitemap URL redirects to another sitemap
+  URL. Items 51a, 51b, 71 and 73 in `references/checks.md` are now `auto`.
+- **1.1.0** — Retired five pieces of SEO folklore the plugin was repeating:
+  title and description lengths are display notes, heading and link counts
+  are structure, none of them a defect on its own.
 - **1.0.0** — First release. Sitemap discovery that reads the `Sitemap:` line
   out of `robots.txt`, falls back to the common CMS paths, and follows a
   sitemap index instead of reporting its child sitemaps as pages. Per-URL regression rules in `compare`, an

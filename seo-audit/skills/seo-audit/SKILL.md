@@ -230,6 +230,18 @@ Order, top to bottom:
    On a personal site, also rank **`summary.entityImagesNotShown`** high: a
    `Person` image that no page renders is why a search for the owner's name
    shows strangers' photos. See the same-name entry in `traps.md`.
+   Four more summary fields answer questions a report used to need a second
+   crawl for, so read them before writing: **`authorEntities`** (who the pages
+   say wrote them, with schema type and page count; a `Person` named after a
+   company or an agency account is a finding about trust, and a site whose
+   posts show no byline while its code names one is a finding about honesty),
+   **`publishedByYear`** (how old each part of the site is; pair it with the
+   orphan list to tell "old posts nobody links to" from "new pages nobody linked
+   yet"), **`linkedNotInSitemap`** (pages the site links to but the sitemap
+   omits, which the crawl never fetched; a nav or CTA page here is the inverse
+   of an orphan) and **`sitemapRedirects`** (sitemap URLs that 301, each one a
+   URL to replace with its destination). Per page, `datePublished`,
+   `dateModified` and `author` carry the same facts.
 4. **What could not be checked, and why.** Anything needing a keyword→URL map,
    anything needing a credential, anything the crawler does not measure.
 5. **One action for this week.** Exactly one. The most valuable finding, the

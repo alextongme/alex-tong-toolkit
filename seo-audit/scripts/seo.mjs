@@ -698,6 +698,56 @@ function jsonLdEntityImages(blocks, imgTags, base) {
   return out;
 }
 
+// The page's own dates and author, read the way an assistant reads them: from the
+// JSON-LD node that describes THIS page (Article, BlogPosting, WebPage, Course…),
+// with `article:published_time` as the fallback. An author given only as
+// {"@id": "…#author"} is resolved against the block's @graph.
+//
+// Added 2026-09-24 after a free report on a large WordPress site. The snapshot
+// carried no publish dates, so ageing 123 orphan pages meant fetching all 123
+// again; and the finding that 387 posts named a Person that was really an agency account (an agency
+// account with a placeholder avatar) as their author had to be reconstructed from
+// Gravatar URLs. Both are things a report about "who does this site say it is"
+// should read off the snapshot.
+const PAGE_LEVEL_TYPES = new Set([
+  "Article", "BlogPosting", "NewsArticle", "TechArticle", "Report", "WebPage", "CollectionPage",
+  "ProfilePage", "AboutPage", "ContactPage", "FAQPage", "ItemPage", "QAPage", "Product", "Course",
+  "Event", "VideoObject", "Recipe", "HowTo", "Service", "LocalBusiness", "Organization", "Person",
+]);
+function jsonLdPageMeta(blocks, html) {
+  const byId = new Map();
+  walkJsonLd(blocks, (node) => { if (node["@id"]) byId.set(String(node["@id"]), node); });
+  let datePublished = null, dateModified = null, author = null;
+  // Yoast writes the author as {"name": "…", "@id": "…#/schema/person/…"} and keeps
+  // the @type on the graph node, so the reference and the node are merged: the
+  // node supplies what the reference left out, the reference wins where both speak.
+  const resolve = (n) => {
+    if (!n || typeof n !== "object" || !n["@id"]) return n;
+    const node = byId.get(String(n["@id"]));
+    return node && node !== n ? { ...node, ...n } : n;
+  };
+  walkJsonLd(blocks, (node) => {
+    const t = [node["@type"]].flat().filter(Boolean).map(String);
+    if (!t.some((x) => PAGE_LEVEL_TYPES.has(x))) return;
+    if (!datePublished && node.datePublished) datePublished = String(node.datePublished);
+    if (!dateModified && node.dateModified) dateModified = String(node.dateModified);
+    if (!author && node.author) {
+      const a = resolve([node.author].flat()[0]);
+      if (a && typeof a === "object") {
+        author = {
+          name: a.name ? String(a.name) : null,
+          type: [a["@type"]].flat().filter(Boolean).map(String).join(",") || null,
+        };
+      } else if (typeof a === "string") {
+        author = { name: a, type: null };
+      }
+    }
+  });
+  if (!datePublished) datePublished = metaContent(html, "article:published_time", "property");
+  if (!dateModified) dateModified = metaContent(html, "article:modified_time", "property");
+  return { datePublished, dateModified, author };
+}
+
 function jsonLdSameAsDeep(blocks) {
   const urls = new Set();
   walkJsonLd(blocks, (node) => {
@@ -820,6 +870,7 @@ async function crawlPage(url, base, site = base) {
   // often hidden than printed.
   const comments = [...html.matchAll(/<!--([\s\S]*?)-->/g)].map((m) => m[1]).join(" ");
   const assistantAddressed = findAssistantAddressed(text, comments, JSON.stringify(ld));
+  const pageMeta = jsonLdPageMeta(ld, html);
 
   return {
     url,
@@ -888,6 +939,12 @@ async function crawlPage(url, base, site = base) {
     // Candidate snippets, never a verdict: the reporter reads them before
     // quoting one. Empty on almost every page, and that is the expected case.
     assistantAddressed,
+    // What the page says about itself: when it was published and changed, and
+    // who wrote it, as {name, type}. `type: "Person"` with a company or agency
+    // name in `name` is the finding jsonLdPageMeta was written for.
+    datePublished: pageMeta.datePublished,
+    dateModified: pageMeta.dateModified,
+    author: pageMeta.author,
   };
 }
 
@@ -1434,9 +1491,28 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages = MAX_CR
     const self = normalizeLink(page.finalUrl || page.url, base);
     page.inboundLinks = inbound.get(self)?.size ?? 0;
   }
-  const orphans = fetched
+  // De-duplicated: a sitemap URL that 301s to another sitemap URL used to list the
+  // destination twice (seen 2026-09-24: 124 entries for 123 pages).
+  const orphans = [...new Set(fetched
     .filter((p) => p.inboundLinks === 0 && (p.finalUrl || p.url) !== base && (p.finalUrl || p.url) !== `${base}/`)
-    .map((p) => p.finalUrl || p.url);
+    .map((p) => p.finalUrl || p.url))];
+
+  // The inverse of an orphan: linked from the site's own pages, absent from the
+  // sitemap. The crawl only fetches sitemap URLs, so these are pages it never
+  // saw — a header-nav catalog page nobody added to the sitemap (seen 2026-09-24)
+  // — and the inbound graph is the only place they
+  // surface. Assets and CMS plumbing are dropped; what is left is a page list.
+  const inSitemap = new Set(urls.map((u) => normalizeLink(u, base)));
+  const ASSET_RE = /\.(png|jpe?g|gif|svg|webp|avif|ico|pdf|css|js|mjs|json|xml|txt|mp4|mp3|zip|woff2?)$/i;
+  const linkedNotInSitemap = [...inbound.entries()]
+    .filter(([t]) => t.startsWith(base) && !inSitemap.has(t) && !ASSET_RE.test(t)
+      && !/\/(wp-json|feed|wp-content|wp-includes|wp-admin|wp-login\.php|cdn-cgi|_next|xmlrpc\.php)\b/.test(t)
+      // Date archives and pagination are generated, not authored; a sitemap is
+      // right to leave them out, so they are not a finding here either.
+      && !/\/\d{4}(\/\d{2})?(\/\d{2})?\/?$/.test(t) && !/\/page\/\d+\/?$/.test(t))
+    .map(([t, from]) => ({ url: t, linkedFrom: from.size }))
+    .sort((a, b) => b.linkedFrom - a.linkedFrom)
+    .slice(0, 100);
 
   // Why a page was not read, not just that it was not. A WAF challenge and a
   // dead URL both used to land in one `failed` bucket.
@@ -1546,6 +1622,39 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages = MAX_CR
       totalWords: fetched.reduce((n, p) => n + (p.wordCount || 0), 0),
       // In the sitemap, reachable from no other page on the site.
       orphanPages: orphans,
+      // The inverse: linked from the site's own pages, missing from the sitemap.
+      // See the note above the computation.
+      linkedNotInSitemap,
+      // Sitemap URLs that redirect. The sitemap should list the destination,
+      // not the door; each one here is a URL to remove or replace.
+      sitemapRedirects: fetched
+        .filter((p) => p.redirected)
+        .map((p) => ({ url: p.url, to: p.finalUrl, status: p.redirectChain?.[0]?.status ?? null })),
+      // Who the pages say wrote them, aggregated across the crawl. A `Person`
+      // whose name is a company or an agency account (one such account was the declared
+      // author of 249 posts on one site, 2026-09-24) is a finding a reader can act on. Reported, never judged here.
+      authorEntities: (() => {
+        const by = new Map();
+        for (const p of fetched) {
+          if (!p.author || !p.author.name) continue;
+          const k = `${p.author.type || "?"}|${p.author.name}`;
+          const row = by.get(k) || { name: p.author.name, type: p.author.type, pages: 0 };
+          row.pages += 1;
+          by.set(k, row);
+        }
+        return [...by.values()].sort((a, b) => b.pages - a.pages);
+      })(),
+      // Publish years from the pages' own JSON-LD (or article:published_time),
+      // so ageing a section never needs a second crawl. `unknown` counts pages
+      // that declare no date; that is a fact about the site, not a zero.
+      publishedByYear: (() => {
+        const by = {};
+        for (const p of fetched) {
+          const y = p.datePublished && /^\d{4}/.test(p.datePublished) ? p.datePublished.slice(0, 4) : "unknown";
+          by[y] = (by[y] || 0) + 1;
+        }
+        return Object.fromEntries(Object.entries(by).sort(([a], [b]) => a.localeCompare(b)));
+      })(),
       headerNoindex: fetched
         .filter((p) => (p.xRobotsTag || "").includes("noindex"))
         .map((p) => p.finalUrl || p.url),
