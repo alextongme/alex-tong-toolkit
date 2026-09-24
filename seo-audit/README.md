@@ -20,6 +20,11 @@ finds them from anywhere.
 
 Questions and the changelog live in [The AI Kitchen](https://alextong.me/kitchen).
 
+Would rather I run it? I send a free SEO & AI visibility report for your site.
+It includes the part this plugin leaves to you: asking ChatGPT, Perplexity and
+Google's AI answers who they name for your kind of business, with every answer
+recorded. [alextong.me/services/ai-visibility](https://alextong.me/services/ai-visibility?utm_source=github&utm_medium=bio&utm_campaign=evergreen&utm_content=post-body).
+
 ## Install
 
 Inside Claude Code:
