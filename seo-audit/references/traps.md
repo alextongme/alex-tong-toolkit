@@ -80,6 +80,14 @@ for is not a row it returns.
 Add missing seeds back as explicit no-data rows. A tool that quietly drops its
 own denominator flatters every result it produces.
 
+**Volume can also be withheld, which is not the same as zero.** Google's
+advertising keyword data (the planner, and every API that resells it) can return
+no volume at all for a whole sensitive category, some health conditions among
+them, while generic terms in the same request come back normally. Checked in
+September 2026. When a category comes back empty, rank it by the site's own Search
+Console impressions instead, which is the only measured demand left, and say
+why in the report. Never write "no one searches for this".
+
 ## Difficulty measures how contested a SERP is, not how winnable it is
 
 The two come apart completely on a topic too new to have accumulated links. A
@@ -276,6 +284,45 @@ What moves that row, in order of control:
 ⚠️ **Never promise the row.** Name the fix and the timeline (weeks to months, after a recrawl), not
 an outcome. Request indexing in Search Console after the change; the Indexing API is not a route
 (see above).
+
+## A small site's 30-day compare measures the season and the dice
+
+A count of N moves by about ±2√N on chance alone, and real traffic is burstier
+than that. At 100 clicks a month that is ±20%, before any season. A small
+site's own history can show clicks per day falling by a third from one season
+to the next with nothing changed on it. So a 30-day compare on a small site can
+honestly answer "did the fix land?" and almost never "did it work?".
+
+`compare` prints the band under the clicks line and refuses a verdict when the
+two windows are different lengths. In the report: call anything inside the band
+"no measurable change yet", compare against the same weeks last year when the
+history reaches that far, and put the outcome re-measure at about 90 days.
+
+## Google changes its own counting, and every site's numbers move at once
+
+In September 2025 Google stopped honouring the `&num=100` results parameter.
+Impressions and average position fell sharply for most sites in the same week
+while clicks held, because rank trackers' views of deep result pages stopped
+being counted. A compare across that date that reads "impressions down 60%" is
+measuring Google, not the site. `compare` keeps a dated list of these and warns
+when two windows sit on either side of one. When a new one happens, add it to
+that list rather than to a report.
+
+## The business name the machines repeat is often a settings box
+
+On hosted builders, the `name` in a site's `LocalBusiness` or `Organization`
+schema usually comes from a business-information settings field, not from
+anything on a page. Owners fill it in once, sometimes with keywords ("Name,
+City Specialists & Service Providers"), and never see it again. Assistants and
+aggregator directories read the schema and repeat that string, so the business
+gets called by a keyword phrase while its own Google profile says the short
+name. On Wix the field is Settings, then Business Info, then Business name. On
+other builders, look for the equivalent business-information settings, or the
+organization name in the SEO plugin.
+
+Changing it is one field, but it is also often what the builder puts on invoices
+and notification emails, so it is the owner's decision. Ask, with "the short
+name" as the recommended answer.
 
 ## Two checks that pass every health table and still matter more than all of them
 

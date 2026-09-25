@@ -1,9 +1,9 @@
 # SEO Audit
 
-**Version 1.3.0** · two Claude Code skills · no account required · MIT
+**Version 1.4.0** · two Claude Code skills · no account required · MIT
 
 Audits what search engines and AI assistants can actually see on your site, then
-freezes a dated snapshot so the same command in 30 days produces a real
+freezes a dated snapshot so the same command in 30 or 90 days produces a real
 before/after instead of a feeling.
 
 The first run needs no credentials, no account and no API key. It reports which
@@ -183,6 +183,16 @@ Two things that catch people, and neither error message says so:
 
 ## Versions
 
+- **1.4.0**: an owner's version of the report for client work, offered after the
+  technical one (`references/client-report.md`): plain words, five findings, the
+  roadmap in do-order. `compare` now prints the chance band under clicks
+  (±2√N), refuses totals from windows of different lengths, and warns when two
+  windows straddle a dated change on Google's side (the first on the list is
+  `&num=100`, September 2025). The report separates the 30-day "did it land"
+  re-measure from the 90-day "did it work" one. New traps: withheld keyword
+  volume in sensitive categories, and the schema business name that comes from a
+  settings box (checks.md row 90). The skill names the two day-0 readings that
+  only exist in the UI, and the two routes when a Bing key can't see the site.
 - **1.3.0**: `--max-pages` samples across the site instead of taking the first N
   URLs in sitemap order, which on a sectioned site was the first section and nothing
   else (on a large sectioned site, 2026-09-24, the first 2,000 never reached four

@@ -304,6 +304,7 @@ the ask is reasonable. Just never bill it as a visibility win.
 | 87 | Trust signals: reviews, credentials, guarantees | `manual` |
 | 88 | Hours and service area stated in text, not only in an image | `manual` |
 | 89 | `LocalBusiness` schema with `sameAs` | `auto` (presence) |
+| 90 | Schema `name` matches the Business Profile and main directory listings | `manual` |
 
 ---
 
