@@ -2224,6 +2224,20 @@ function delta(a, b, { digits = 0, invert = false } = {}) {
   return paint(s, good ? C.green : C.red);
 }
 
+// Changes on Google's side that moved Search Console numbers for nearly every
+// site at once. A compare whose windows sit on both sides of one is measuring
+// Google, not the site. Add to this list; never remove from it, because old
+// snapshots keep getting compared.
+const GOOGLE_REPORTING_EVENTS = [
+  {
+    date: "2025-09-10",
+    what: "Google stopped honouring the &num=100 results parameter (reported between "
+      + "2025-09-10 and 09-12). Impressions and average position fell for most sites "
+      + "while clicks held, because rank trackers' deep-page views stopped counting. "
+      + "Compare clicks across it, not impressions or position.",
+  },
+];
+
 function compare(cfg, labelA, labelB) {
   const root = cfg.snapRoot;
   const dirA = findSnapshot(root, labelA);
@@ -2256,6 +2270,23 @@ function compare(cfg, labelA, labelB) {
     const names = [...new Set([...(mA?.skipped || []), ...(mB?.skipped || [])].map((x) => x.source))];
     say(paint(`  sources missing from one or both snapshots: ${names.join(", ")}`, C.dim));
   }
+  // Totals from windows of different lengths are not comparable, and nothing
+  // below can fix that after the fact. Say it before any number is printed.
+  const days = (m) => m?.window?.from && m?.window?.until
+    ? Math.round((Date.parse(m.window.until) - Date.parse(m.window.from)) / 86400000) + 1
+    : null;
+  const [daysA, daysB] = [days(mA), days(mB)];
+  const sameLength = daysA != null && daysB != null && Math.abs(daysA - daysB) <= Math.max(1, 0.1 * Math.max(daysA, daysB));
+  if (daysA != null && daysB != null && !sameLength) {
+    say(warn(`  ⚠ the windows are different lengths (${daysA} vs ${daysB} days): compare clicks per day, not the totals below`));
+  }
+  const spanFrom = [mA?.window?.from, mB?.window?.from].filter(Boolean).sort()[0];
+  const spanUntil = [mA?.window?.until, mB?.window?.until].filter(Boolean).sort().at(-1);
+  for (const ev of GOOGLE_REPORTING_EVENTS) {
+    if (spanFrom && spanUntil && spanFrom < ev.date && ev.date <= spanUntil) {
+      say(warn(`  ⚠ these windows span ${ev.date}, a change on Google's side: ${ev.what}`));
+    }
+  }
   say("");
 
   // Search Console totals
@@ -2275,6 +2306,16 @@ function compare(cfg, labelA, labelB) {
     const ta = a.totals, tb = b.totals;
     if (ta && tb) {
       say(`  clicks        ${String(ta.clicks).padStart(7)} → ${String(tb.clicks).padStart(7)}   ${delta(ta.clicks, tb.clicks)}`);
+      // Chance alone moves a count of N by about ±2√N. Real traffic is burstier
+      // than that (weekdays, one shared link), so this is the LEAST a move has to
+      // clear before it is a change, not proof that a bigger one is. On a site
+      // with 100 clicks a month it is ±20%, which is why a small site's 30-day
+      // compare usually shows no change even when the fix landed.
+      if (ta.clicks > 0 && sameLength) {
+        const band = Math.round(2 * Math.sqrt(ta.clicks));
+        const inside = Math.abs(tb.clicks - ta.clicks) <= band;
+        say(paint(`  chance alone  ±${band} clicks (2√${ta.clicks}); ${inside ? "this move is inside it: no measurable change yet" : "this move is outside it"}`, C.dim));
+      }
       say(`  impressions   ${String(ta.impressions).padStart(7)} → ${String(tb.impressions).padStart(7)}   ${delta(ta.impressions, tb.impressions)}`);
       say(`  ctr           ${(ta.ctr * 100).toFixed(2).padStart(6)}% → ${(tb.ctr * 100).toFixed(2).padStart(6)}%   ${delta(ta.ctr * 100, tb.ctr * 100, { digits: 2 })}`);
       say(`  avg position  ${ta.position?.toFixed(2).padStart(7)} → ${tb.position?.toFixed(2).padStart(7)}   ${delta(ta.position, tb.position, { digits: 2, invert: true })} ${paint("(lower is better)", C.dim)}`);

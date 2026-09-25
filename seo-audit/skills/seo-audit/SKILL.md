@@ -59,6 +59,14 @@ schema type removed, `og:image` removed, a page gone from the sitemap, a page
 that became an orphan. Lead the diff with those, not with the site totals: the
 totals can all read *no change* while nine pages broke.
 
+Three warnings print above the numbers, and each one changes how the numbers
+underneath can be read. **Different window lengths**: totals are not comparable,
+compare per day. **A change on Google's side between the windows** (a dated list
+in the script): compare clicks across it, not impressions or position. And under
+clicks, **the chance band**, about ±2√N of the earlier count: a move inside it is
+*no measurable change yet*, whatever colour the delta is printed in. Report all
+three in the same words.
+
 `$ARGUMENTS` carries the mode. Empty means full.
 
 ## Step 1 — find the site before asking for it
@@ -240,6 +248,13 @@ Order, top to bottom:
    On a personal site, also rank **`summary.entityImagesNotShown`** high: a
    `Person` image that no page renders is why a search for the owner's name
    shows strangers' photos. See the same-name entry in `traps.md`.
+   On a business site, compare the **`name` in its `LocalBusiness` or
+   `Organization` schema** with the name on its Google Business Profile and its
+   main directory listings. Hosted builders fill that field from a settings box
+   nobody looks at again, assistants and aggregator directories repeat it
+   verbatim, and a long keyword-stuffed name there outranks most on-page
+   findings because it is one field to fix. See the business-name entry in
+   `traps.md`.
    Four more summary fields answer questions a report used to need a second
    crawl for, so read them before writing: **`authorEntities`** (who the pages
    say wrote them, with schema type and page count; a `Person` named after a
@@ -258,11 +273,27 @@ Order, top to bottom:
    smallest version of it that can be done, and what it should move. A list of
    fourteen recommendations is a list nobody starts.
 6. **The unlock offer**, if anything is not connected — see step 6.
-7. **The re-measure date.** `re-run /seo-audit compare baseline <label>` on a
-   named date, 30 days out.
+7. **The re-measure date, and which question it answers.** Thirty days out
+   shows whether the changes *landed*: recrawled, read, live. Whether they
+   *worked* usually needs about 90 days on a small site, because a site with 100
+   clicks a month moves ±20% on chance alone, and a season can move it further.
+   Name the date, say which of the two questions it answers, and when the history
+   covers it, say that the comparison is against the same weeks last year, not
+   against the previous window. See the small-site entry in `traps.md`.
 
 **Three things the report must never do:** promise a position, describe a
 `manual` check as passed, or present a not-connected source as a zero.
+
+### The owner's version
+
+On client work, the technical report is for whoever fixes the site, and the
+owner usually can't read it. After it is written, ask one question with a
+recommended answer: *"Does the owner need their own version in plain words?
+Recommended: yes for a client, no for your own site."* On a yes, read
+`${CLAUDE_PLUGIN_ROOT}/references/client-report.md` and write
+`owner-report.md` beside `audit-report.md`. Every number in it must trace to the
+technical report. Prices, discounts and anything included free are the
+operator's call: leave a visible placeholder until they answer.
 
 ## Step 6 — offer credentials only now
 
@@ -282,6 +313,13 @@ as *"no clicks"* — the plugin's own trap, fired by its own upgrade path.
 One sentence, one question, a recommended answer. If they decline, the audit
 stands on what it measured, and you say so without hedging.
 
+**If the Bing canary says the site is not in the key's account**, the key works
+and the site simply isn't one of its properties. Two routes, both fine: add the
+site to that Bing Webmaster Tools account (it can import sites from Search
+Console in a few clicks), or have the owner export Search Performance as a CSV
+from their own account on day 0 and again at the re-measure. Say which one you
+are using in the report, so the re-measure uses the same one.
+
 ## Step 7 — what only the owner knows
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/must-ask.md`. Ask **one question at a
@@ -291,6 +329,14 @@ next step actually needs. Never open with all seven.
 For a full-size job, write `seo-answers.md` beside the snapshot with every
 question, a blank, and a pre-filled recommendation. The owner edits it, you read
 it back. Local file, never a hosted form.
+
+**Two readings have no usable API on day 0 and are gone once anything
+changes**, so on a full job ask for them before any fix goes in: Search
+Console's AI-features view in the Performance report (not in the API), and the
+Performance page of the owner's Business Profile, a six-month range, screenshots
+of the overview and the searches list (the API exists but needs a Google-approved
+project, which a first engagement won't have). Write the click-path; the owner
+exports. Re-take both the same way at the re-measure.
 
 Two answers change the audit itself and are worth asking for even on a bounded
 job: **what query do you want to win** (without it, five on-page checks cannot
@@ -308,7 +354,8 @@ they run it.
 ## What you never do in this skill
 
 - Change a file in the user's project. The only files you create are inside the
-  snapshot folder: `audit-report.md`, and `seo-answers.md` on a full job.
+  snapshot folder: `audit-report.md`, `seo-answers.md` on a full job, and
+  `owner-report.md` when the owner's version was asked for.
 - Write page content, or recommend generating it. The honest output of a
   content finding is a **brief with the owner's own angle left blank**, and a
   `decline` is a legitimate result: demand can be real and the answer still no.
@@ -337,6 +384,7 @@ they run it.
 End by naming what comes next, in one line:
 
 > *Baseline captured as `2026-09-19-baseline`, in `<the snapshot folder>`.
-> Re-run `/seo-audit compare 2026-09-19-baseline <new-label>` on 2026-10-19 —
-> same command, like-for-like diff. If you connect Search Console before then,
+> Re-run `/seo-audit compare 2026-09-19-baseline <new-label>` on 2026-10-19 to
+> check the changes landed, and on 2026-12-18 to see whether they worked. Same
+> command, like-for-like diff. If you connect Search Console before then,
 > `/seo-setup`.*
