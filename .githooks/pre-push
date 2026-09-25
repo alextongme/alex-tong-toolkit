@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Pre-push hook: the last gate before anything reaches GitHub.
+#
+# Scans every commit about to leave this machine (its message, each file it
+# adds or changes, and the branch name) with the same rules as pre-commit.
+# It catches what the commit-time hooks miss: commits made with --no-verify or
+# git commit-tree, in a clone without the hooks enabled, or before a client was
+# added to .safety-scan-local.txt. `git push --no-verify` skips it.
+set -eu
+if ! command -v node >/dev/null 2>&1; then
+  echo "warn: pre-push safety scan skipped — node not on PATH" >&2
+  exit 0
+fi
+node scripts/scan-safety.js --pre-push "$1"

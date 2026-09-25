@@ -4,6 +4,7 @@
 // Usage:
 //   node scripts/scan-safety.js              # scan every non-gitignored file (CI mode)
 //   node scripts/scan-safety.js <file>...    # scan only the given files (pre-commit hook mode)
+//   node scripts/scan-safety.js --pre-push <remote>   # scan outgoing commits (pre-push hook mode)
 //
 // Exit codes:
 //   0 — no hard-block matches (warnings do not fail)
@@ -65,6 +66,13 @@ const HARD_BLOCK = [
     description: "OpenAI-style API key",
     // sk- followed by 30+ non-hyphen chars. Excludes sk-ant- (checked above).
     regex: /\bsk-(?!ant-)[A-Za-z0-9]{30,}\b/g,
+  },
+  {
+    id: "SEC-OPENAI-PROJ",
+    description: "OpenAI project, service-account or admin key",
+    // The newer formats carry a hyphenated prefix and underscores, which the
+    // rule above cannot match.
+    regex: /\bsk-(proj|svcacct|admin)-[A-Za-z0-9_\-]{40,}/g,
   },
   {
     id: "SEC-GH-TOKEN",
@@ -224,33 +232,44 @@ function looksBinary(buf) {
 // ---------------------------------------------------------------------------
 
 function scanFile(file, hardRules, warnRules) {
-  const violations = [];
-  const warnings = [];
-
-  const basename = path.basename(file);
-  for (const pattern of BANNED_FILENAMES) {
-    if (pattern.test(basename)) {
-      violations.push({
-        rule: "FILE-NAME",
-        description: `Filename '${basename}' is banned — never commit files matching credential name patterns`,
-        line: 0,
-        excerpt: `(filename '${basename}')`,
-      });
-      return { violations, warnings };
-    }
-  }
+  const named = bannedName(file);
+  if (named) return named;
 
   let content;
   try {
     const buf = fs.readFileSync(file);
-    if (looksBinary(buf)) return { violations, warnings };
+    if (looksBinary(buf)) return { violations: [], warnings: [] };
     content = buf.toString("utf8");
   } catch (err) {
     // Unreadable — skip silently.
-    return { violations, warnings };
+    return { violations: [], warnings: [] };
   }
 
   const relPath = path.relative(".", file).split(path.sep).join("/");
+  return scanContent(content, relPath, hardRules, warnRules);
+}
+
+function bannedName(file) {
+  const basename = path.basename(file);
+  if (!BANNED_FILENAMES.some((pattern) => pattern.test(basename))) return null;
+  return {
+    violations: [
+      {
+        rule: "FILE-NAME",
+        description: `Filename '${basename}' is banned — never commit files matching credential name patterns`,
+        line: 0,
+        excerpt: `(filename '${basename}')`,
+      },
+    ],
+    warnings: [],
+  };
+}
+
+// relPath is the repo-relative path the text came from, or null for text that
+// is not a file (a commit message, a branch name).
+function scanContent(content, relPath, hardRules, warnRules) {
+  const violations = [];
+  const warnings = [];
 
   for (const rule of hardRules) {
     if (rule.allowInFiles && rule.allowInFiles.includes(relPath)) continue;
@@ -283,40 +302,114 @@ function scanFile(file, hardRules, warnRules) {
   return { violations, warnings };
 }
 
+// The match itself is never printed. A blocked key or client name echoed to a
+// terminal lands in scrollback, CI logs and screen recordings, which is the
+// leak the scan exists to prevent. The context around it is enough to find it.
 function excerpt(content, index, len) {
   const start = Math.max(0, index - 20);
   const end = Math.min(content.length, index + len + 20);
-  const slice = content.slice(start, end).replace(/\s+/g, " ").trim();
-  return slice;
+  const slice =
+    content.slice(start, index) + `[${len} chars hidden]` + content.slice(index + len, end);
+  return slice.replace(/\s+/g, " ").trim();
+}
+
+// ---------------------------------------------------------------------------
+// Pre-push mode
+// ---------------------------------------------------------------------------
+
+// Git feeds one line per ref being pushed on stdin:
+//   <local ref> <local sha> <remote ref> <remote sha>
+// Every commit about to leave this machine is scanned: its message, each file
+// it adds or changes as that file stood in the commit, and the branch name.
+// This catches what the commit-time hooks cannot: commits made with
+// --no-verify or git commit-tree, in a clone without the hooks enabled, or
+// before a pattern was added to the local list. Commits the remote already has
+// are skipped; they are public either way.
+function scanOutgoing(remote, report) {
+  const git = (args) =>
+    require("child_process").execFileSync("git", args, { maxBuffer: 256 * 1024 * 1024 });
+  const seen = new Set();
+
+  for (const line of fs.readFileSync(0, "utf8").split("\n").filter(Boolean)) {
+    const [localRef, localSha, remoteRef] = line.split(" ");
+    if (/^0+$/.test(localSha)) continue; // deleting a remote ref sends no content
+
+    for (const ref of new Set([localRef, remoteRef])) {
+      const name = ref.replace(/^refs\/(heads|tags)\//, "");
+      report("(branch or tag name)", scanContent(name, null, hardRules, warnRules));
+    }
+
+    const commits = git(["rev-list", localSha, "--not", `--remotes=${remote}`])
+      .toString()
+      .split("\n")
+      .filter(Boolean);
+    for (const commit of commits) {
+      if (seen.has(commit)) continue;
+      seen.add(commit);
+      const id = commit.slice(0, 8);
+
+      const raw = git(["cat-file", "commit", commit]).toString("utf8");
+      const message = raw.slice(raw.indexOf("\n\n") + 2);
+      report(`${id} (commit message)`, scanContent(message, null, hardRules, warnRules));
+
+      // -m so a merge's own changes are seen too; blobs already scanned are skipped.
+      const diff = git(["diff-tree", "-r", "-m", "-z", "--root", "--no-commit-id", "--diff-filter=AMT", commit])
+        .toString("utf8")
+        .split("\0");
+      for (let i = 0; i + 1 < diff.length; i += 2) {
+        const [, mode, , blob] = diff[i].split(" ");
+        const file = diff[i + 1];
+        if (mode === "160000" || seen.has(blob + file)) continue; // submodule, or done
+        seen.add(blob + file);
+
+        const named = bannedName(file);
+        if (named) {
+          report(`${id} ${file}`, named);
+          continue;
+        }
+        const buf = git(["cat-file", "blob", blob]);
+        if (looksBinary(buf)) continue;
+        report(`${id} ${file}`, scanContent(buf.toString("utf8"), file, hardRules, warnRules));
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
-const argFiles = process.argv.slice(2);
-const files = argFiles.length ? argFiles : trackedFiles();
+const args = process.argv.slice(2);
 const localPatterns = loadLocalPatterns();
 const hardRules = [...HARD_BLOCK, ...localPatterns];
 const warnRules = WARN;
 
 let hardCount = 0;
 let warnCount = 0;
+let scanned = 0;
 
-for (const file of files) {
-  if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) continue;
-  const { violations, warnings } = scanFile(file, hardRules, warnRules);
+function report(where, { violations, warnings }) {
+  scanned++;
   for (const v of violations) {
     console.error(
-      `BLOCK  ${file}:${v.line}  [${v.rule}] ${v.description}\n       ${v.excerpt}`,
+      `BLOCK  ${where}:${v.line}  [${v.rule}] ${v.description}\n       ${v.excerpt}`,
     );
     hardCount++;
   }
   for (const w of warnings) {
     console.warn(
-      `warn   ${file}:${w.line}  [${w.rule}] ${w.description}\n       ${w.excerpt}`,
+      `warn   ${where}:${w.line}  [${w.rule}] ${w.description}\n       ${w.excerpt}`,
     );
     warnCount++;
+  }
+}
+
+if (args[0] === "--pre-push") {
+  scanOutgoing(args[1] || "origin", report);
+} else {
+  for (const file of args.length ? args : trackedFiles()) {
+    if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) continue;
+    report(file, scanFile(file, hardRules, warnRules));
   }
 }
 
@@ -331,6 +424,6 @@ if (hardCount > 0) {
   );
   process.exit(0);
 } else {
-  console.log(`OK: ${files.length} path(s) scanned, no matches.`);
+  console.log(`OK: ${scanned} item(s) scanned, no matches.`);
   process.exit(0);
 }
