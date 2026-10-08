@@ -146,9 +146,10 @@ is the same failure as an unavailable source reported as a zero.
 |---|---|---|
 | 47 | Internal links out, in body content — **counted, with no target number** | `auto` (count) |
 | 48 | Anchor text is descriptive, not "click here" | `manual` |
-| 49 | **Inbound internal links exist from a real page, not only the sitemap** | `auto` — the doorway check, counted per URL from the link graph |
+| 49 | **Inbound internal links exist from a real page, not only the sitemap** | `auto` — the doorway check, counted per URL from the link graph, which since 1.5.0 includes the later pages of any list (`/blog/page/2` …) the crawled pages link to |
 | 50 | The link runs both directions between the hub and the page | `manual` |
-| 51 | No orphan pages in the sitemap | `auto` — zero inbound links from any other crawled page |
+| 51 | No orphan pages in the sitemap | `auto` — zero inbound links from any other crawled page, archive pages included. On a Wix blog, verify a remaining orphan by hand first: see the archive-page entry in `traps.md` |
+| 51c | **Pages linked only from page N of a list** — `summary.linkedFromArchiveOnly`. Not orphans; Google's rule is a link from at least one page, and an archive page is one. Reported apart because the advice differs: an orphan needs a link, a buried post needs a reason to be read. `summary.archivePages.truncated` means the walk hit its cap and the orphan count is an upper bound | `auto` |
 | 51a | **Every page the site links to is in the sitemap** — `summary.linkedNotInSitemap`, the inverse of an orphan. The crawl only fetches sitemap URLs, so a nav or CTA page nobody added to the sitemap (a booking page linked from every page on the site) only shows up here | `auto` — assets, date archives and pagination excluded |
 | 51b | **No sitemap URL redirects** — `summary.sitemapRedirects`. A sitemap lists destinations, not doors; each entry is a URL to replace | `auto` |
 | 52 | No links to 404s or redirect chains | `manual` — links are collected, not followed |

@@ -1,13 +1,14 @@
 # SEO Audit
 
-**Version 1.4.0** · two Claude Code skills · no account required · MIT
+**Version 1.5.0** · two Claude Code skills · no account required · MIT
 
 Audits what search engines and AI assistants can actually see on your site, then
 freezes a dated snapshot so the same command in 30 or 90 days produces a real
 before/after instead of a feeling.
 
 The first run needs no credentials, no account and no API key. It reports which
-AI crawlers are allowed in, crawls every URL in your sitemap, checks your entity
+AI crawlers are allowed in, crawls every URL in your sitemap plus the later pages
+of any list they link to, checks your entity
 graph, reconciles the sitemap against what is live, and captures the baseline.
 Connecting Search Console later adds index state, Google's chosen canonical per
 URL, and query history — it is an upgrade, not a prerequisite.
@@ -129,7 +130,7 @@ credentials:
 
 | Host | When | Why |
 |---|---|---|
-| **Your site** (from `seo.config.json`) | `robots`, `onpage`, `capture` | `robots.txt`, the sitemap it declares (or `/sitemap.xml`, `/sitemap_index.xml`, `/wp-sitemap.xml`), any child sitemaps, and one GET per page URL |
+| **Your site** (from `seo.config.json`) | `robots`, `onpage`, `capture` | `robots.txt`, the sitemap it declares (or `/sitemap.xml`, `/sitemap_index.xml`, `/wp-sitemap.xml`), any child sitemaps, one GET per page URL, and one GET per later page of any list those pages link to (`/blog/page/2`, `?page=3`), up to 300 |
 | `www.googleapis.com` | `capture`, `canary` | PageSpeed Insights. Works unauthenticated; your own API key removes the rate limit |
 | `oauth2.googleapis.com` | `capture`, `doctor` | Exchanges your Search Console service-account key for an access token |
 | `searchconsole.googleapis.com` | `capture`, `doctor` | URL Inspection, read-only |
@@ -183,6 +184,18 @@ Two things that catch people, and neither error message says so:
 
 ## Versions
 
+- **1.5.0**: the crawl now walks the later pages of every list the site links
+  to (`/blog/page/2` … `/blog/page/N`, `?page=3`, `<link rel="next">`), up to 300
+  of them, and counts the links they carry. A sitemap is right to leave those
+  pages out, but the posts listed on them are linked by Google's own rule, and
+  without this pass every post past the first page of a blog read as an orphan
+  (most of a blog's posts on one site, 2026-10-08). Two new summary fields:
+  `linkedFromArchiveOnly` (in the sitemap, linked only from page N of a list:
+  buried, not orphaned) and `archivePages` (how many were walked, and
+  `truncated` when the cap was hit, which makes the orphan count an upper
+  bound). Per page, `inboundFromArchiveOnly`. New trap: Wix serves one post
+  fewer per archive page to anything that is not Googlebot, so a remaining
+  orphan on a Wix blog is checked by hand before it is reported.
 - **1.4.0**: an owner's version of the report for client work, offered after the
   technical one (`references/client-report.md`): plain words, five findings, the
   roadmap in do-order. `compare` now prints the chance band under clicks

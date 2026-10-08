@@ -138,6 +138,28 @@ follow in `sitemap.notFollowed`. **A non-empty `notFollowed` means the page
 list is incomplete, and coverage cannot see that** — the crawl can fetch 100%
 of the wrong list. Report it.
 
+## A sitemap crawl cannot see the links on page 2 of a blog
+
+A sitemap lists posts, not the archive pages that list them (`/blog/page/2`
+through `/blog/page/22`), and it is right to leave them out. A crawl that fetches
+only sitemap URLs therefore never reads the one place most old posts are linked
+from, and reports them as orphans. On one site that turned "most of the blog is
+linked from nowhere" into a written finding, with "assembled by script" as the
+stated cause; the archive was plain server HTML with five posts a page, and the
+crawl had simply never opened it (2026-10-08). Since 1.5.0 the crawl walks those
+pages (`crawlArchivePages`, capped at 300) and the links they carry count.
+
+Two things survive the fix. **Wix serves one post fewer per archive page to any
+user agent that is not Googlebot** (four of five, every page, checked across
+three user agents on the same day), so on a Wix blog one post per archive page
+still reads as an orphan. Before reporting a remaining orphan on Wix, fetch its
+archive page as Googlebot and look for the link. And **"linked from page 14 of
+an archive" is a weaker fact than "linked from the services page"**: Google's
+rule is satisfied, but a post with no link from any authored page is buried, and
+the summary keeps those apart in `linkedFromArchiveOnly` so a report can say
+"buried" instead of "orphaned". The doorway pattern this check exists for is a
+page reachable only from the sitemap, and that is still what `orphanPages` means.
+
 ## Crawl bot names do not map to the claims people make about them
 
 `GPTBot` is training. `OAI-SearchBot` is the search index. `ChatGPT-User` is a
