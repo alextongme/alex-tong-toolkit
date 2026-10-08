@@ -773,6 +773,31 @@ function normalizeLink(href, from) {
   } catch { return null; }
 }
 
+// A link to a later page of a list: `/blog/page/2`, `?page=3`, `?offset=20`.
+// normalizeLink drops the query string, so `?page=3` would collapse into the
+// list's first page and vanish; this keeps the paging parameter and nothing
+// else, so `?page=3&utm_source=x` and `?page=3` are one page. `?p=123` is left
+// out on purpose: on WordPress it is a post, not a page of a list.
+const PAGINATION_PATH_RE = /\/page\/\d+\/?$/i;
+const PAGINATION_QUERY_KEYS = new Set(["page", "paged", "pg", "offset", "start"]);
+function paginationUrl(href, from, base, site) {
+  try {
+    const u = new URL(href, from);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    const host = u.hostname.toLowerCase();
+    if (host !== new URL(base).hostname.toLowerCase() && host !== new URL(site).hostname.toLowerCase()) return null;
+    const byPath = PAGINATION_PATH_RE.test(u.pathname);
+    const paging = [...u.searchParams].filter(([k, v]) => PAGINATION_QUERY_KEYS.has(k.toLowerCase()) && /^\d+$/.test(v));
+    if (!byPath && !paging.length) return null;
+    u.hash = "";
+    u.search = paging.length ? `?${new URLSearchParams(paging)}` : "";
+    u.hostname = host;
+    let out = u.toString();
+    if (out.endsWith("/") && u.pathname !== "/") out = out.slice(0, -1);
+    return out;
+  } catch { return null; }
+}
+
 // Text that talks to an assistant instead of to a reader. This is not a
 // prompt-injection defence — nothing here is ever executed — it is a finding
 // about the site: somebody has been trying to instruct assistants through this
@@ -861,6 +886,15 @@ async function crawlPage(url, base, site = base) {
   // Kept, not just counted: the inbound-link graph is built from these, and it
   // is what answers "is this page linked from a real page" — the doorway check.
   const internalTargets = [...new Set(internal.map((h) => normalizeLink(h, res.url || url)).filter(Boolean))];
+  // The later pages of any list this page is page one of. Anchors first, then
+  // the `<link rel="next">` a paginated archive carries in its head; both are
+  // kept with their paging parameter, which internalTargets above strips.
+  const relNext = html.match(/<link[^>]*rel\s*=\s*["'][^"']*\bnext\b[^"']*["'][^>]*>/i);
+  const paginationTargets = [...new Set(
+    [...hrefs, relNext ? attr(relNext[0], "href") : null]
+      .map((h) => h && paginationUrl(h, res.url || url, base, site))
+      .filter(Boolean),
+  )];
   const external = hrefs.filter((h) => /^https?:\/\//i.test(h) && !h.startsWith(base) && !h.startsWith(site));
   const externalHosts = [...new Set(external.map((h) => { try { return new URL(h).host; } catch { return "?"; } }))].sort();
 
@@ -920,6 +954,7 @@ async function crawlPage(url, base, site = base) {
     imagesMissingAlt: imgsNoAlt,
     internalLinks: internal.length,
     internalTargets,
+    paginationTargets,
     externalLinks: external.length,
     externalHosts,
     jsonLdTypes: jsonLdTypesDeep(ld),
@@ -1453,6 +1488,83 @@ function stratifiedSample(all, n) {
   return { urls, strata };
 }
 
+// A worker pool, not lock-step batches. The old loop waited for all four
+// fetches in a batch before starting the next four, so every batch cost the
+// slowest page in it — on a site with a few slow pages that idles most of the
+// workers most of the time. Workers pull from a shared cursor instead, so a
+// slow page blocks one worker rather than the whole crawl.
+//
+// Each result is also individually guarded. crawlPage is written not to
+// throw, but "written not to throw" is what was believed before a body-stream
+// error took out a 133-page run. An unexpected throw must cost one page, not
+// the snapshot.
+async function crawlAll(urls, { concurrency, crawlDelay, base, site, label }) {
+  const pages = new Array(urls.length);
+  let cursor = 0;
+  let done = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= urls.length) return;
+      try {
+        pages[i] = await crawlPage(urls[i], base, site);
+      } catch (err) {
+        pages[i] = { url: urls[i], error: `crawl: ${String(err.message || err)}`, fetchClass: "error" };
+      }
+      // After the fetch, not before, so the pause is between requests rather
+      // than tacked onto the front of the run.
+      if (crawlDelay) await sleep(crawlDelay * 1000);
+      done += 1;
+      if (done % 4 === 0 || done === urls.length) {
+        process.stdout.write(`\r  ${label} ${done}/${urls.length}`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, worker));
+  if (urls.length) process.stdout.write("\n");
+  return pages;
+}
+
+// Enough for a blog of a few thousand posts at ten a page; past that the
+// archive is a site of its own and a sitemap crawl stops being the right tool.
+const MAX_ARCHIVE_PAGES = 300;
+
+// Walk the later pages of every list the fetched pages point at. Breadth-first
+// and in rounds, because page 1 of an archive links to pages 2 to 5 and "last",
+// and page 2 is what links to page 6; one hop from the sitemap finds a fifth of
+// a long archive and misses the rest. Pages already in the sitemap are not
+// fetched twice: they are in `fetched` already, and are seeds here.
+async function crawlArchivePages(seeds, { known, concurrency, crawlDelay, base, site }) {
+  const seen = new Set(known.map((u) => normalizeLink(u, base)));
+  const queue = [];
+  const enqueue = (page) => {
+    for (const t of page.paginationTargets || []) {
+      if (seen.has(t)) continue;
+      seen.add(t);
+      queue.push(t);
+    }
+  };
+  for (const page of seeds) enqueue(page);
+  const pages = [];
+  const failed = [];
+  let truncated = false;
+  while (queue.length) {
+    const room = MAX_ARCHIVE_PAGES - pages.length - failed.length;
+    if (room <= 0) { truncated = true; break; }
+    const round = queue.splice(0, room);
+    const got = await crawlAll(round, { concurrency, crawlDelay, base, site, label: "archive pages" });
+    for (const page of got) {
+      if (page.error) { failed.push(page); continue; }
+      pages.push(page);
+      enqueue(page);
+    }
+  }
+  if (truncated) {
+    console.log(warn(`  archive walk stopped at ${MAX_ARCHIVE_PAGES} pages — orphan counts are an upper bound on this site`));
+  }
+  return { pages, failed, truncated };
+}
+
 async function crawlSite(base, { concurrency = 8, site = base, maxPages } = {}) {
   // robots.txt first. It was already being fetched — just after the crawl that
   // needed it — and it is where a site declares where its real sitemap lives.
@@ -1496,39 +1608,7 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages } = {}) 
     concurrency = 1;
   }
 
-  // A worker pool, not lock-step batches. The old loop waited for all four
-  // fetches in a batch before starting the next four, so every batch cost the
-  // slowest page in it — on a site with a few slow pages that idles most of the
-  // workers most of the time. Workers pull from a shared cursor instead, so a
-  // slow page blocks one worker rather than the whole crawl.
-  //
-  // Each result is also individually guarded. crawlPage is written not to
-  // throw, but "written not to throw" is what was believed before a body-stream
-  // error took out a 133-page run. An unexpected throw must cost one page, not
-  // the snapshot.
-  const pages = new Array(urls.length);
-  let cursor = 0;
-  let done = 0;
-  const worker = async () => {
-    for (;;) {
-      const i = cursor++;
-      if (i >= urls.length) return;
-      try {
-        pages[i] = await crawlPage(urls[i], base, site);
-      } catch (err) {
-        pages[i] = { url: urls[i], error: `crawl: ${String(err.message || err)}`, fetchClass: "error" };
-      }
-      // After the fetch, not before, so the pause is between requests rather
-      // than tacked onto the front of the run.
-      if (crawlDelay) await sleep(crawlDelay * 1000);
-      done += 1;
-      if (done % 4 === 0 || done === urls.length) {
-        process.stdout.write(`\r  crawled ${done}/${urls.length}`);
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, worker));
-  process.stdout.write("\n");
+  const pages = await crawlAll(urls, { concurrency, crawlDelay, base, site, label: "crawled" });
 
   const aiCrawlers = await checkAiCrawlers(base, robots, robotsRes?.status ?? null);
 
@@ -1540,12 +1620,26 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages } = {}) 
   const fetched = pages.filter((p) => !p.error);
   const failed = pages.filter((p) => p.error);
 
+  // The later pages of every list the site has: `/blog/page/2` through
+  // `/blog/page/22`. A sitemap is right to leave them out, so the crawl above
+  // never fetched them, and that made every post listed on them read as linked
+  // from nowhere. The links they carry are real by Google's own rule ("every
+  // page you care about should have a link from at least one other page"), and
+  // a report built without them called most of a blog orphaned on a site whose
+  // archive linked every post (2026-10-08). Skipped on a sample, where the link
+  // graph is unknown anyway.
+  const archive = sampled
+    ? { pages: [], failed: [], truncated: false }
+    : await crawlArchivePages(fetched, { known: all, concurrency, crawlDelay, base, site });
+  const archiveFetched = archive.pages;
+  const archiveUrls = new Set(archiveFetched.map((p) => normalizeLink(p.finalUrl || p.url, base)));
+
   // The inbound-link graph, built from links already collected. A page that
   // nothing links to is reachable only from the sitemap, which is the doorway
   // pattern — and it is the check that would have failed four pages every
-  // on-page rule passed.
+  // on-page rule passed. Archive pages count as sources, not as pages.
   const inbound = new Map();
-  for (const page of fetched) {
+  for (const page of [...fetched, ...archiveFetched]) {
     const self = normalizeLink(page.finalUrl || page.url, base);
     for (const target of page.internalTargets || []) {
       if (target === self) continue;
@@ -1557,7 +1651,13 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages } = {}) 
     const self = normalizeLink(page.finalUrl || page.url, base);
     // On a sample the link graph only covers the sampled pages, so a count here
     // would call nearly every page an orphan. Unknown, not zero.
-    page.inboundLinks = sampled ? null : inbound.get(self)?.size ?? 0;
+    const sources = inbound.get(self);
+    page.inboundLinks = sampled ? null : sources?.size ?? 0;
+    // Linked, but only from page N of a list: buried rather than orphaned. Kept
+    // apart because the two get different advice — an orphan needs a link, a
+    // buried post needs a reason to be read.
+    page.inboundFromArchiveOnly = sampled ? null
+      : !!(sources?.size && [...sources].every((s) => archiveUrls.has(s)));
   }
   // De-duplicated: a sitemap URL that 301s to another sitemap URL used to list the
   // destination twice (seen 2026-09-24: 124 entries for 123 pages).
@@ -1696,6 +1796,21 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages } = {}) 
       totalWords: fetched.reduce((n, p) => n + (p.wordCount || 0), 0),
       // In the sitemap, reachable from no other page on the site.
       orphanPages: orphans,
+      // In the sitemap, linked only from the later pages of a list. Not orphans;
+      // the thing to fix, if anything, is what the page says, not where it sits.
+      linkedFromArchiveOnly: sampled ? null : fetched
+        .filter((p) => p.inboundFromArchiveOnly)
+        .map((p) => p.finalUrl || p.url),
+      // The archive walk behind the two lists above. `truncated` means the cap
+      // was hit and some later pages went unread, so an orphan count on that
+      // site is an upper bound, not a count.
+      archivePages: {
+        fetched: archiveFetched.length,
+        failed: archive.failed.length,
+        truncated: archive.truncated,
+        cap: MAX_ARCHIVE_PAGES,
+        urls: archiveFetched.map((p) => p.finalUrl || p.url).slice(0, 100),
+      },
       // The inverse: linked from the site's own pages, missing from the sitemap.
       // See the note above the computation.
       linkedNotInSitemap,

@@ -239,7 +239,13 @@ Order, top to bottom:
    `manual` item as passing. Two findings deserve to be near the top whenever
    they appear, because every other check can pass while they fail:
    **orphan pages** (`summary.orphanPages` — in the sitemap, linked from
-   nowhere, which is the doorway pattern) and **header-level `noindex`**
+   nowhere, which is the doorway pattern; the link graph includes the later
+   pages of any list the site links to, so a post on page 14 of a blog is not
+   an orphan but lands in `summary.linkedFromArchiveOnly`, which is a different
+   finding: buried, and the fix is the post, not a link. If
+   `summary.archivePages.truncated` is true the orphan count is an upper bound,
+   say so. On a Wix blog, fetch the archive page as Googlebot before reporting
+   any orphan that remains, see `traps.md`) and **header-level `noindex`**
    (`summary.headerNoindex` — an `X-Robots-Tag` carrying a `noindex` on a page
    that looks indexable in its meta tag). Say that the two disagree and that the
    **more restrictive** directive is the one that applies; never say the header
