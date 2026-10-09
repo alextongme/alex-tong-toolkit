@@ -2755,6 +2755,10 @@ const CANARY_CONTROL_ROBOTS = "https://www.google.com/robots.txt";
 
 async function canary(cfg, flags) {
   const site = cfg.site;
+  // Same names as capture's --skip. A skipped source is left out of the table
+  // entirely, so a run that was never going to have the access does not report
+  // the missing access as a gap.
+  const skip = String(flags.skip || "").split(",").map((s) => s.trim()).filter(Boolean);
   console.log(paint("\nCanary — known-answer checks before any result is believed\n", C.bold));
   const checks = [];
   const add = (source, question, expected, state, detail) =>
@@ -2817,7 +2821,9 @@ async function canary(cfg, flags) {
   // 4. Search Console. The control is "can this identity see any property at
   //    all" — because zero rows from a property you cannot see and zero rows
   //    from a property with no traffic are the same JSON.
-  if (!haveKeyFile(cfg)) {
+  if (skip.includes("gsc")) {
+    // left out on purpose
+  } else if (!haveKeyFile(cfg)) {
     add("search-console", "list properties", "at least one property", "N/A", "not connected");
   } else {
     try {
@@ -2846,7 +2852,9 @@ async function canary(cfg, flags) {
 
   // 6. Bing. An endpoint that returns an empty array for a site with pages is
   //    the exact failure this whole command exists for.
-  if (!secret("BING_WMT_API_KEY")) {
+  if (skip.includes("bing")) {
+    // left out on purpose
+  } else if (!secret("BING_WMT_API_KEY")) {
     add("bing", "rank and traffic stats", "a non-empty series", "N/A", "no BING_WMT_API_KEY");
   } else if (!site) {
     add("bing", "rank and traffic stats", "a non-empty series", "N/A", "no site configured");
@@ -3030,6 +3038,8 @@ seo.mjs — freeze a site's search signals into a dated folder you can diff late
   --here            init: write ${CONFIG_NAME} in this directory, not ~/seo-audits/<host>/
   --out <path>      write machine-readable output (robots, canary, onpage)
   --concurrency <n> parallel page fetches while crawling (default 8)
+  --skip <list>     canary, capture: leave sources out (gsc, inspection, bing,
+                    psi, onpage), e.g. when there will never be access to them
   --max-pages <n>   crawl at most n sitemap URLs. Above 2000 the crawl refuses
                     until you pass this, and a truncated crawl is reported as
                     a sample of the site rather than as the site
