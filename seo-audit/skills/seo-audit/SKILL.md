@@ -342,7 +342,10 @@ Console's AI-features view in the Performance report (not in the API), and the
 Performance page of the owner's Business Profile, a six-month range, screenshots
 of the overview and the searches list (the API exists but needs a Google-approved
 project, which a first engagement won't have). Write the click-path; the owner
-exports. Re-take both the same way at the re-measure.
+exports. Re-take both the same way at the re-measure. The Business Profile
+dashboard shows six months and nothing earlier, in whole months only: there is
+no year-on-year read in it, and each month past the sixth is gone for good, so
+the day-0 capture is the only record of the earliest months.
 
 Two answers change the audit itself and are worth asking for even on a bounded
 job: **what query do you want to win** (without it, five on-page checks cannot
