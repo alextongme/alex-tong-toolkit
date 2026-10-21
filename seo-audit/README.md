@@ -1,6 +1,6 @@
 # SEO Audit
 
-**Version 1.5.0** · two Claude Code skills · no account required · MIT
+**Version 1.6.0** · two Claude Code skills · no account required · MIT
 
 Audits what search engines and AI assistants can actually see on your site, then
 freezes a dated snapshot so the same command in 30 or 90 days produces a real
@@ -184,6 +184,22 @@ Two things that catch people, and neither error message says so:
 
 ## Versions
 
+- **1.6.0**: a month of client runs, folded back in. Three crawl corrections:
+  a sitemap URL whose canonical names another page is an alias and no longer
+  reads as an orphan, nor its target as linked-but-not-in-sitemap (a builder
+  that lists the home page as `/home` while every page links `/`);
+  `multipleH1` counts distinct heading text, so a layout that renders one
+  heading twice is one heading; a PageSpeed run with a null score carries
+  Lighthouse's reason (`NO_LCP` and friends) instead of a bare null. The
+  `seo-audit` skill documents `--skip`, reads an all-5xx crawl as a bot filter
+  rather than broken pages, counts re-measure dates from the last change,
+  reads a diff after deliberate deletions, and names the three export-only
+  Search Console views. `seo-setup` covers a site inside a corporate domain.
+  The owner's-report, must-ask and traps references pick up the rest: no
+  competitor names in anything the owner signs, drafts over skeletons on
+  health pages, the proposal check before delivery, registry-sourced listings,
+  counting enquiries by source, and the builder defaults that look like
+  findings.
 - **1.5.0**: the crawl now walks the later pages of every list the site links
   to (`/blog/page/2` … `/blog/page/N`, `?page=3`, `<link rel="next">`), up to 300
   of them, and counts the links they carry. A sitemap is right to leave those

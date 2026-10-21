@@ -47,7 +47,11 @@ Eight sections, in this order. Cut a section rather than pad it.
    evidence in plain numbers, the fix in one or two sentences.
 5. **Who's ahead, and why.** Competitors in one short table: where they beat the
    owner, how, and whether it is worth copying. Usually the answer is "no, and
-   here's why".
+   here's why". **This table lives in the owner's report only.** Nothing the
+   owner approves, signs or forwards (a roadmap, an addendum, a change list, a
+   draft for their web team) names a competitor: a document that leaves the
+   owner's hands with a rival's name in it is a document the rival can read
+   (the operator's call, 2026-10-20).
 6. **What I recommend.** The roadmap, **in the order you would do it**, with hours
    and price per item, then a "nice to have" list and a "don't do" list with the
    reason for each. End with "if you only do one, do this".
@@ -68,8 +72,21 @@ Eight sections, in this order. Cut a section rather than pad it.
 - **Open questions never block delivery.** Anything the owner hasn't answered
   goes in as a conditional ("if the new booking page goes live, then..."), and the
   report ships on its date.
-- **Health, legal and money pages:** the owner writes the words. The roadmap says
-  so for every such item, because it changes the calendar more than the hours.
+- **Health, legal and money pages:** the owner owns the words, so send a rough
+  draft for them to edit, never a skeleton. Build it from their own existing
+  pages and put a bracketed question wherever only they know the answer. The
+  roadmap says so for every such item, because the owner's edit changes the
+  calendar more than the hours.
+- **Word each roadmap or addendum item as the literal change** ("the footer
+  logo links to the Maps listing", not "improve the footer"), so the owner's
+  signature is the written OK and no second approval is needed before the work.
+- **Never ask the owner to check what you can check yourself.** A traffic spike,
+  a tag, a redirect, a date on a page: look it up. Questions to the owner are
+  for facts only they hold.
+- **Before delivery, read the proposal and the agreement again** and check that
+  every promised piece is in the report in full. An audit once delivered four
+  promised pieces as one-line summaries, and the owner noticed before the
+  operator did.
 
 ## Format
 

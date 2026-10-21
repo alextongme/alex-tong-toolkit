@@ -59,6 +59,13 @@ schema type removed, `og:image` removed, a page gone from the sitemap, a page
 that became an orphan. Lead the diff with those, not with the site totals: the
 totals can all read *no change* while nine pages broke.
 
+**After deletions the owner chose**, `page gone from the sitemap` and `became
+an orphan` rows are expected, not regressions. Before reading the diff, list
+the URLs that were removed on purpose, then check that each one now returns a
+real 404 or 410 rather than a 200 carrying a not-found page. The not-indexed
+count also falls with the page count, mechanically; never report that fall as
+a gain.
+
 Three warnings print above the numbers, and each one changes how the numbers
 underneath can be read. **Different window lengths**: totals are not comparable,
 compare per day. **A change on Google's side between the windows** (a dated list
@@ -127,6 +134,13 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/seo.mjs" robots
 node "${CLAUDE_PLUGIN_ROOT}/scripts/seo.mjs" canary
 node "${CLAUDE_PLUGIN_ROOT}/scripts/seo.mjs" capture --label baseline
 ```
+
+`--skip <list>` on `canary` and `capture` leaves a source out on purpose:
+`--skip gsc,inspection,bing` when the owner will never grant Search Console or
+Bing, `--skip psi` when PageSpeed is not wanted. A skipped source is recorded
+as skipped in the manifest and left out of the canary table. Without it a
+source you chose not to use prints as `FAIL` in every report, which reads as a
+broken site to the owner.
 
 1. **`robots`** — which AI crawlers can read the site. First, because a blocked
    `OAI-SearchBot` makes every other finding moot for that engine, and because
@@ -221,7 +235,12 @@ opposite things depending on which one dominates:
 - **`rate_limited`** — the crawl was too fast or the host is strict. Re-run
   before drawing any conclusion.
 - **`error`** — dead URLs, bad certificates, or a sitemap listing pages that no
-  longer exist. That one *is* a finding about the pages.
+  longer exist. That one *is* a finding about the pages. **Unless a browser
+  loads the same URLs.** A site that answers every fetch with a 5xx or a 403
+  and renders fine for a person has a bot filter in front of it, which is the
+  `blocked` finding wearing the wrong status code (a corporate platform did
+  this on 2026-10-14: 500, then 403, to every crawler name, and a clean page in
+  a browser). Open one URL in a real browser before calling a whole site broken.
 
 ## Step 5 — the report
 
@@ -244,7 +263,10 @@ Order, top to bottom:
    an orphan but lands in `summary.linkedFromArchiveOnly`, which is a different
    finding: buried, and the fix is the post, not a link. If
    `summary.archivePages.truncated` is true the orphan count is an upper bound,
-   say so. On a Wix blog, fetch the archive page as Googlebot before reporting
+   say so. A sitemap URL whose canonical names another page is an alias, not
+   an orphan: Squarespace lists the home page as `/home` while every page links
+   `/`. Since 1.6.0 the crawl marks it `canonicalAlias` and leaves it out of
+   the orphan list and its target out of `linkedNotInSitemap`. On a Wix blog, fetch the archive page as Googlebot before reporting
    any orphan that remains, see `traps.md`) and **header-level `noindex`**
    (`summary.headerNoindex` — an `X-Robots-Tag` carrying a `noindex` on a page
    that looks indexable in its meta tag). Say that the two disagree and that the
@@ -283,9 +305,12 @@ Order, top to bottom:
    shows whether the changes *landed*: recrawled, read, live. Whether they
    *worked* usually needs about 90 days on a small site, because a site with 100
    clicks a month moves ±20% on chance alone, and a season can move it further.
-   Name the date, say which of the two questions it answers, and when the history
-   covers it, say that the comparison is against the same weeks last year, not
-   against the previous window. See the small-site entry in `traps.md`.
+   Both clocks start the day the last change goes live, not the day of the
+   audit: a fix that lands three weeks after the baseline has had one week at
+   the first re-run, not thirty days. Name the date, say which of the two
+   questions it answers, and when the history covers it, say that the
+   comparison is against the same weeks last year, not against the previous
+   window. See the small-site entry in `traps.md`.
 
 **Three things the report must never do:** promise a position, describe a
 `manual` check as passed, or present a not-connected source as a zero.
@@ -347,6 +372,12 @@ dashboard shows six months and nothing earlier, in whole months only: there is
 no year-on-year read in it, and each month past the sixth is gone for good, so
 the day-0 capture is the only record of the earliest months.
 
+Three more Search Console views are export-only, and only comparable over the
+same date range: Performance filtered to AI features, Page indexing, and
+Links. Export each on day 0 with the range written down, and export the same
+range again at the re-measure. A different window is a different number, not
+a change.
+
 Two answers change the audit itself and are worth asking for even on a bounded
 job: **what query do you want to win** (without it, five on-page checks cannot
 run at all) and **which identities should stay unlinked** (getting this wrong
@@ -395,5 +426,6 @@ End by naming what comes next, in one line:
 > *Baseline captured as `2026-09-19-baseline`, in `<the snapshot folder>`.
 > Re-run `/seo-audit compare 2026-09-19-baseline <new-label>` on 2026-10-19 to
 > check the changes landed, and on 2026-12-18 to see whether they worked. Same
-> command, like-for-like diff. If you connect Search Console before then,
-> `/seo-setup`.*
+> command, like-for-like diff. Both dates move with the last change: if the
+> fixes go live later, count from that day. If you connect Search Console
+> before then, `/seo-setup`.*

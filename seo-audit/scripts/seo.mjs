@@ -1659,10 +1659,26 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages } = {}) 
     page.inboundFromArchiveOnly = sampled ? null
       : !!(sources?.size && [...sources].every((s) => archiveUrls.has(s)));
   }
+  // A sitemap URL whose canonical names another page is an alias of that page,
+  // not a page of its own. One builder lists the home page as /home while every
+  // page on the site links /, so /home read as an orphan and / as linked-but-
+  // not-in-sitemap on three sites in a row (2026-09-28 to 2026-10-09). The alias
+  // inherits its target's inbound links for the orphan test, and the target is
+  // not reported as missing from the sitemap.
+  const canonicalAliasOf = (p) => {
+    const self = normalizeLink(p.finalUrl || p.url, base);
+    const c = p.canonical ? normalizeLink(p.canonical, p.finalUrl || p.url) : null;
+    return c && c !== self ? c : null;
+  };
+  for (const page of fetched) {
+    const target = canonicalAliasOf(page);
+    page.canonicalAlias = target && !sampled && (inbound.get(target)?.size || target === `${base}/`) ? target : null;
+  }
+  const canonicalTargets = new Set(fetched.map((p) => p.canonicalAlias).filter(Boolean));
   // De-duplicated: a sitemap URL that 301s to another sitemap URL used to list the
   // destination twice (seen 2026-09-24: 124 entries for 123 pages).
   const orphans = sampled ? null : [...new Set(fetched
-    .filter((p) => p.inboundLinks === 0 && (p.finalUrl || p.url) !== base && (p.finalUrl || p.url) !== `${base}/`)
+    .filter((p) => p.inboundLinks === 0 && !p.canonicalAlias && (p.finalUrl || p.url) !== base && (p.finalUrl || p.url) !== `${base}/`)
     .map((p) => p.finalUrl || p.url))];
 
   // The inverse of an orphan: linked from the site's own pages, absent from the
@@ -1675,7 +1691,7 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages } = {}) 
   const inSitemap = new Set(all.map((u) => normalizeLink(u, base)));
   const ASSET_RE = /\.(png|jpe?g|gif|svg|webp|avif|ico|pdf|css|js|mjs|json|xml|txt|mp4|mp3|zip|woff2?)$/i;
   const linkedNotInSitemap = [...inbound.entries()]
-    .filter(([t]) => t.startsWith(base) && !inSitemap.has(t) && !ASSET_RE.test(t)
+    .filter(([t]) => t.startsWith(base) && !inSitemap.has(t) && !canonicalTargets.has(t) && !ASSET_RE.test(t)
       && !/\/(wp-json|feed|wp-content|wp-includes|wp-admin|wp-login\.php|cdn-cgi|_next|xmlrpc\.php)\b/.test(t)
       // Date archives and pagination are generated, not authored; a sitemap is
       // right to leave them out, so they are not a finding here either.
@@ -1774,9 +1790,11 @@ async function crawlSite(base, { concurrency = 8, site = base, maxPages } = {}) 
         .map((p) => ({ url: p.url, length: p.descriptionLength })),
       // Recorded as structure, not as a defect. Google's starter guide lists it
       // among the things not to focus on — "there's no ideal number or order of
-      // headings required" — so a page with two h1s is not a finding. The next
-      // line is: an h1 that exists and is empty is a real one, at any count.
-      multipleH1: fetched.filter((p) => p.h1Count > 1).map((p) => p.url),
+      // headings required" — so a page with two h1s is not a finding. Counted
+      // on distinct text: a builder that renders the same heading twice for two
+      // layouts has one heading (seen on three hosted-builder sites, 2026-10).
+      // The next line is: an h1 that exists and is empty is a real one, at any count.
+      multipleH1: fetched.filter((p) => new Set(p.h1.map((h) => h.trim()).filter(Boolean)).size > 1).map((p) => p.url),
       emptyH1: fetched.filter((p) => p.h1Count > 0 && p.h1.every((h) => !h)).map((p) => p.url),
       totalImagesMissingAlt: fetched.reduce((n, p) => n + (p.imagesMissingAlt || 0), 0),
       // A Person image that no page declaring it actually renders.
@@ -1886,6 +1904,13 @@ async function runPsi(url, strategy) {
   const lh = body.lighthouseResult || {};
   const audits = lh.audits || {};
   const pick = (id) => audits[id]?.numericValue ?? null;
+  // A null score is Lighthouse declining to grade, and it says why: a page with
+  // no largest-contentful-paint candidate reports NO_LCP, a crashed run carries
+  // runtimeError. Without the reason a null reads as "the tool broke", which
+  // the owner then asks about (2026-10-09).
+  const nullScoreReason = lh.runtimeError?.code
+    ? `${lh.runtimeError.code}: ${lh.runtimeError.message || ""}`.trim()
+    : audits["largest-contentful-paint"]?.errorMessage || audits["largest-contentful-paint"]?.explanation || null;
   const field = body.loadingExperience?.metrics || {};
   const fieldOf = (k) => (field[k] ? { p75: field[k].percentile, category: field[k].category } : null);
 
@@ -1895,6 +1920,7 @@ async function runPsi(url, strategy) {
     scores: Object.fromEntries(
       Object.entries(lh.categories || {}).map(([k, v]) => [k, v.score == null ? null : Math.round(v.score * 100)]),
     ),
+    nullScoreReason: Object.values(lh.categories || {}).some((v) => v.score == null) ? nullScoreReason : null,
     lab: {
       lcpMs: pick("largest-contentful-paint"),
       clsScore: audits["cumulative-layout-shift"]?.numericValue ?? null,
@@ -2233,7 +2259,9 @@ async function capture(cfg, flags) {
         const { url, strategy } = jobs[i];
         const r = await runPsi(url, strategy);
         runs[i] = r;
-        const s = r.scores ? `perf ${r.scores.performance} seo ${r.scores.seo}` : bad(r.error);
+        const s = r.scores
+          ? `perf ${r.scores.performance ?? "null"} seo ${r.scores.seo ?? "null"}${r.nullScoreReason ? ` (${r.nullScoreReason})` : ""}`
+          : bad(r.error);
         console.log(`    ${strategy.padEnd(8)} ${(url.replace(site, "") || "/").padEnd(34)} ${s}`);
       }
     };
