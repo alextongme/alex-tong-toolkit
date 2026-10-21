@@ -346,6 +346,37 @@ Changing it is one field, but it is also often what the builder puts on invoices
 and notification emails, so it is the owner's decision. Ask, with "the short
 name" as the recommended answer.
 
+The old name outlives the fix in links. A Google badge image in the footer
+links to a share URL that opens a search for whatever the name was when the
+badge was made, and the schema check cannot see it. After a name change, grep
+the site's outbound links for the old name (2026-10-20: two badges, both still
+searching for the long name a month after the fix).
+
+## Hosted builders say the same wrong thing in the same place
+
+Each of these looked like a finding on a client site and was the builder.
+Check for the builder before writing the finding.
+
+- **Squarespace lists the home page as `/home`** while every page links `/`.
+  Since 1.6.0 the crawl treats `/home` as a canonical alias; before that it
+  read as an orphan and `/` as linked-but-not-in-sitemap, on three sites.
+- **Squarespace ships placeholder titles** ("General 6", "Services 3") on
+  pages whose title box was never filled, and an empty `LocalBusiness` block
+  with no `name` and no `telephone` when the business-info panel was skipped.
+  Both are real findings; the fix is a settings box, not code.
+- **Squarespace renders one heading twice** for two layouts. Since 1.6.0
+  `multipleH1` counts distinct text; the raw `h1Count` still shows both.
+- **Wix splits an animated heading into one span per letter**, so the H1 text
+  comes out as "T o ni". The heading is fine; quote it from a browser, not from
+  the crawl.
+- **Wix prints a feed of recent posts in the footer of every page.** In the
+  server HTML those look like post-to-post navigation cards. They are the same
+  three links on every page; check in a headless browser before reporting
+  post navigation that is not there.
+- **A hosted builder serves a near-empty 200** now and then under crawl load.
+  A page the crawl reports as untitled with a few dozen words, fetch again
+  before reporting it.
+
 ## Two checks that pass every health table and still matter more than all of them
 
 | Check | Why |

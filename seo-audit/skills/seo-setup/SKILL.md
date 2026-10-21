@@ -59,6 +59,18 @@ never as "no clicks."** This is `traps.md`'s own rule pointed at this skill: a
 source that has not collected yet and a site nobody searches for produce the
 same empty table, and only one of them is a finding.
 
+## When the site belongs to a bigger organisation
+
+A site inside a corporate platform (a brokerage, a franchise, a section of a
+parent company's domain) is usually not the owner's to verify. A URL-prefix
+property on their own section misses the pages that live under other paths, a
+Restricted role on the domain property shows them the whole company's data and
+is usually refused, and nobody hands over Owner on a domain they share. Ask
+once, with the refusal expected. When it comes, use the owner's own export:
+Search Performance as a CSV from whatever access they already have, on day 0
+and again at the re-measure, the route the audit already uses when a Bing key
+is not bound to the site. Say in the report which route was used.
+
 ## Run the walkthrough
 
 ```bash

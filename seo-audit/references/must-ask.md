@@ -39,6 +39,16 @@ dormant syndication accounts (dev.to, Hashnode, Medium). On alextong.me on
 2026-09-22, those turned up three more real profiles the owner had not listed,
 two of them from Buffer's channel list.
 
+**Then ask where they are listed that they never listed themselves.**
+Directories, registries and aggregators build profiles from public records (a
+professional registry, a licensing board, a data broker), and assistants quote
+those profiles word for word. A wrong phone number on one of them is usually the
+registry record upstream, so the fix is the registry, not the directory. For a
+physical business, add Bing Places to the list: it feeds the assistants that
+search through Bing. For a business with several offices or agent teams, ask
+which Business Profile is theirs and which card Google shows for the brand
+name, because on 2026-10-14 those were two different profiles.
+
 ### 2. Is there anyone else with your name or brand, and where do they outrank you?
 
 **Why it decides something:** it changes the target from "rank for my name" to
@@ -88,6 +98,13 @@ all.
 
 **Recommended default:** their own name for a personal site; the service plus the
 city for a local business. Propose it and let them correct it.
+
+**Ask what they will count.** Business Profile interactions and search clicks
+can move the opposite way from the number the owner cares about, their
+enquiries (seen 2026-10-14: interactions up, enquiries down). The reliable
+count is the owner's own: a *how did you find this form* question on the
+intake form, with a pre-filled link for each place the form is posted, so the
+re-measure reads enquiries by source instead of guessing from clicks.
 
 ### 6. Service area and real competitors
 
